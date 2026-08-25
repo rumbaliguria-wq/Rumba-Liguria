@@ -117,6 +117,12 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScannedRef = useRef<string | null>(null);
 
+  // Manual check-in state (for when a client doesn't have their card/phone on hand)
+  const [showManualCheckin, setShowManualCheckin] = useState(false);
+  const [manualEventId, setManualEventId] = useState("");
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualCheckinLoadingId, setManualCheckinLoadingId] = useState<string | null>(null);
+
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
@@ -552,6 +558,38 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     }
   };
 
+  // ─── Manual check-in ───
+
+  const closeManualCheckin = () => {
+    setShowManualCheckin(false);
+    setManualEventId("");
+    setManualSearch("");
+  };
+
+  const handleManualCheckin = async (card: Card) => {
+    if (!manualEventId) return;
+    setManualCheckinLoadingId(card.id);
+    try {
+      const res = await fetch("/api/cards/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: card.code, event_id: manualEventId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Errore check-in");
+        return;
+      }
+      toast.success(data.logged ? `Check-in registrato per ${card.full_name}!` : `${card.full_name} era già entrato/a in questo evento`);
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, visit_count: data.visit_count } : c)));
+      fetchStats();
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setManualCheckinLoadingId(null);
+    }
+  };
+
   // ─── Scanner ───
 
   const stopScanner = useCallback(() => {
@@ -721,6 +759,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     return matchesSearch && matchesType;
   });
 
+  const manualFilteredCards = cards.filter((c) => {
+    if (!c.active) return false;
+    if (!manualSearch.trim()) return true;
+    const q = manualSearch.toLowerCase();
+    return c.full_name.toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+  });
+
   return (
     <>
       {/* Stats */}
@@ -783,6 +828,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         >
           <Camera size={16} />
           Scansiona
+        </button>
+        <button
+          onClick={() => setShowManualCheckin(true)}
+          className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 transition-all text-xs sm:text-sm font-medium active:scale-95 flex-shrink-0"
+        >
+          <CheckCircle size={16} />
+          Check-in Manuale
         </button>
         <button
           onClick={openCreateForm}
@@ -1137,6 +1189,92 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 Elimina
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Manual check-in modal */}
+      {showManualCheckin && createPortal(
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0a0a12] border border-blue-500/20 rounded-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <CheckCircle size={18} className="text-yellow-400" />
+                Check-in Manuale
+              </h2>
+              <button onClick={closeManualCheckin} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Usa questo se il cliente non ha con sé la tessera o il telefono: cerca il nome e registra l&apos;ingresso manualmente.
+            </p>
+
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Evento *</label>
+              <select
+                value={manualEventId}
+                onChange={(e) => setManualEventId(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
+              >
+                <option value="" className="bg-[#0a0a12] text-white">Seleziona un evento...</option>
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id} className="bg-[#0a0a12] text-white">{ev.title}</option>
+                ))}
+              </select>
+            </div>
+
+            {!manualEventId ? (
+              <p className="text-center text-gray-500 text-sm py-6">Seleziona prima un evento per cercare le tessere.</p>
+            ) : (
+              <>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    value={manualSearch}
+                    onChange={(e) => setManualSearch(e.target.value)}
+                    placeholder="Cerca per nome, email o codice..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-sm"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {manualFilteredCards.length === 0 ? (
+                    <p className="text-center text-gray-500 text-sm py-6">Nessuna tessera trovata</p>
+                  ) : (
+                    manualFilteredCards.map((card) => (
+                      <div key={card.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {card.photo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={card.photo_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-white/10" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                              <User size={16} className="text-blue-400" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-white truncate">{card.full_name}</p>
+                            <p className="text-[10px] text-gray-500 truncate">{card.visit_count ?? 0} ingressi totali</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleManualCheckin(card)}
+                          disabled={manualCheckinLoadingId === card.id}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/20 transition-all active:scale-95 disabled:opacity-50 flex-shrink-0"
+                        >
+                          <CheckCircle size={13} />
+                          {manualCheckinLoadingId === card.id ? "..." : "Check-in"}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>,
         document.body
