@@ -344,7 +344,23 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       const rowGap = 68;
       const qrSize = 260;
       const qrY = rowsStartY + rows.length * rowGap + 20;
-      const H = qrY + qrSize + 60;
+
+      // Notes are printed as a footer below the QR so whoever holds the card
+      // can always read them (e.g. revocation terms) — measured on a scratch
+      // context since the real canvas isn't sized yet.
+      const notesFontSize = 13;
+      const notesLineHeight = 18;
+      const notesMaxWidth = W - 80;
+      let notesLines: string[] = [];
+      if (card.notes && card.notes.trim()) {
+        const measureCtx = document.createElement("canvas").getContext("2d")!;
+        measureCtx.font = `${notesFontSize}px Arial`;
+        notesLines = wrapTextLines(measureCtx, card.notes.trim(), notesMaxWidth);
+      }
+      const notesTopPad = notesLines.length ? 34 : 0;
+      const notesBlockHeight = notesLines.length ? notesTopPad + notesLines.length * notesLineHeight : 0;
+
+      const H = qrY + qrSize + 60 + notesBlockHeight;
 
       const canvas = document.createElement("canvas");
       canvas.width = W;
@@ -506,6 +522,23 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       ctx.fillText("SCAN", W / 2, qrY + qrSize / 2 - 4);
       ctx.font = "700 14px Arial";
       ctx.fillText("ME", W / 2, qrY + qrSize / 2 + 14);
+
+      // Notes footer
+      if (notesLines.length) {
+        const lineY = qrY + qrSize + notesTopPad;
+        ctx.strokeStyle = "#e5e5e5";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(50, lineY - 20);
+        ctx.lineTo(W - 50, lineY - 20);
+        ctx.stroke();
+        ctx.fillStyle = "#888888";
+        ctx.font = `italic ${notesFontSize}px Arial`;
+        ctx.textAlign = "center";
+        notesLines.forEach((line, i) => {
+          ctx.fillText(line, W / 2, lineY + i * notesLineHeight);
+        });
+      }
 
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("toBlob failed");
@@ -1327,6 +1360,23 @@ function wrapCenteredText(ctx: CanvasRenderingContext2D, text: string, cx: numbe
   if (current) lines.push(current);
   const startY = y - ((lines.length - 1) * lineHeight) / 2;
   lines.forEach((line, i) => ctx.fillText(line, cx, startY + i * lineHeight));
+}
+
+function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = (text || "").split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 function slugify(text: string): string {
