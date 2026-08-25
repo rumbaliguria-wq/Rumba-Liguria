@@ -829,6 +829,17 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
           ))}
           <option value="OTRO" className="bg-[#0a0a12] text-white">Altro</option>
         </select>
+        <select
+          value={manualEventId}
+          onChange={(e) => setManualEventId(e.target.value)}
+          title="Evento per il check-in rapido"
+          className="px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-yellow-500/40 transition-all text-sm"
+        >
+          <option value="" className="bg-[#0a0a12] text-white">Evento check-in...</option>
+          {events.map((ev) => (
+            <option key={ev.id} value={ev.id} className="bg-[#0a0a12] text-white">{ev.title}</option>
+          ))}
+        </select>
         <button
           onClick={() => setShowScanner(true)}
           className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-all text-xs sm:text-sm font-medium active:scale-95 flex-shrink-0"
@@ -866,11 +877,15 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredCards.map((card) => {
             const typeInfo = decodeIdType(card.id_type);
+            const alreadyIn = manualEventId ? (card.event_ids || []).includes(manualEventId) : false;
             return (
-              <button
+              <div
                 key={card.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => openDetail(card)}
-                className={`text-left p-4 rounded-xl bg-[#0a0a12] border transition-all hover:border-blue-500/30 ${
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openDetail(card); }}
+                className={`text-left p-4 rounded-xl bg-[#0a0a12] border transition-all hover:border-blue-500/30 cursor-pointer ${
                   card.active ? "border-white/10" : "border-red-500/20 opacity-60"
                 }`}
               >
@@ -899,12 +914,29 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 </div>
                 <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
                   <span className="truncate">{[card.city, card.country].filter(Boolean).join(", ") || "—"}</span>
-                  <span className="flex items-center gap-1 text-blue-400 font-semibold flex-shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!manualEventId) {
+                        toast.error("Seleziona prima un evento (menu \"Evento check-in\") per registrare l'ingresso");
+                        return;
+                      }
+                      if (alreadyIn) return;
+                      handleManualCheckin(card);
+                    }}
+                    disabled={manualCheckinLoadingId === card.id || alreadyIn}
+                    title={manualEventId ? (alreadyIn ? "Già entrato in questo evento" : "Registra l'ingresso per l'evento selezionato") : "Seleziona un evento per il check-in rapido"}
+                    className={`flex items-center gap-1 font-semibold flex-shrink-0 px-2 py-1 rounded-full transition-all active:scale-95 disabled:active:scale-100 ${
+                      alreadyIn
+                        ? "bg-green-500/15 text-green-400"
+                        : "text-blue-400 hover:bg-blue-500/10"
+                    }`}
+                  >
                     <CheckCircle size={12} />
-                    {card.visit_count ?? 0}
-                  </span>
+                    {manualCheckinLoadingId === card.id ? "..." : card.visit_count ?? 0}
+                  </button>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
