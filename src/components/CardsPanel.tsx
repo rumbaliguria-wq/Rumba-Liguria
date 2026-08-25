@@ -51,6 +51,7 @@ interface Card {
   created_at: string;
   visit_count?: number;
   last_visit?: string | null;
+  event_ids?: (string | null)[];
 }
 
 interface ScanRecord {
@@ -581,7 +582,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         return;
       }
       toast.success(data.logged ? `Check-in registrato per ${card.full_name}!` : `${card.full_name} era già entrato/a in questo evento`);
-      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, visit_count: data.visit_count } : c)));
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === card.id
+            ? { ...c, visit_count: data.visit_count, event_ids: [...new Set([...(c.event_ids || []), manualEventId])] }
+            : c
+        )
+      );
       fetchStats();
     } catch {
       toast.error("Errore di connessione");
@@ -1245,32 +1252,39 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                   {manualFilteredCards.length === 0 ? (
                     <p className="text-center text-gray-500 text-sm py-6">Nessuna tessera trovata</p>
                   ) : (
-                    manualFilteredCards.map((card) => (
-                      <div key={card.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {card.photo_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={card.photo_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-white/10" />
-                          ) : (
-                            <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
-                              <User size={16} className="text-blue-400" />
+                    manualFilteredCards.map((card) => {
+                      const alreadyIn = (card.event_ids || []).includes(manualEventId);
+                      return (
+                        <div key={card.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {card.photo_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={card.photo_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-white/10" />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                                <User size={16} className="text-blue-400" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{card.full_name}</p>
+                              <p className="text-[10px] text-gray-500 truncate">{card.visit_count ?? 0} ingressi totali</p>
                             </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{card.full_name}</p>
-                            <p className="text-[10px] text-gray-500 truncate">{card.visit_count ?? 0} ingressi totali</p>
                           </div>
+                          <button
+                            onClick={() => handleManualCheckin(card)}
+                            disabled={manualCheckinLoadingId === card.id || alreadyIn}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:active:scale-100 flex-shrink-0 ${
+                              alreadyIn
+                                ? "bg-green-500/20 text-green-400 border border-green-500/30 disabled:opacity-100"
+                                : "bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/20 disabled:opacity-50"
+                            }`}
+                          >
+                            <CheckCircle size={13} />
+                            {alreadyIn ? "Entrato" : manualCheckinLoadingId === card.id ? "..." : "Check-in"}
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleManualCheckin(card)}
-                          disabled={manualCheckinLoadingId === card.id}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/20 transition-all active:scale-95 disabled:opacity-50 flex-shrink-0"
-                        >
-                          <CheckCircle size={13} />
-                          {manualCheckinLoadingId === card.id ? "..." : "Check-in"}
-                        </button>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </>

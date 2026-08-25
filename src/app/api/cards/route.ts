@@ -7,13 +7,13 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("client_cards")
-    .select("*, card_scans(scanned_at)")
+    .select("*, card_scans(scanned_at, event_id)")
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const cards = (data || []).map((c) => {
-    const scans = (c.card_scans as { scanned_at: string }[]) || [];
+    const scans = (c.card_scans as { scanned_at: string; event_id: string | null }[]) || [];
     const lastScan = scans.length
       ? scans.reduce((a, b) => (a.scanned_at > b.scanned_at ? a : b)).scanned_at
       : null;
@@ -22,6 +22,7 @@ export async function GET() {
       card_scans: undefined,
       visit_count: scans.length,
       last_visit: lastScan,
+      event_ids: [...new Set(scans.map((s) => s.event_id).filter(Boolean))],
     };
   });
 
