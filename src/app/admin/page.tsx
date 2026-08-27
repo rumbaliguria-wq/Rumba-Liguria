@@ -196,6 +196,7 @@ export default function AdminPage() {
   const [vipCodes, setVipCodes] = useState<string[]>([]);
   const [vipGenerating, setVipGenerating] = useState(false);
   const [vipName, setVipName] = useState("");
+  const [vipDownloadingAll, setVipDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
@@ -789,6 +790,49 @@ export default function AdminPage() {
     }
   };
 
+  const handleDownloadAllVip = async () => {
+    if (vipCodes.length === 0) return;
+    setVipDownloadingAll(true);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+      const files: File[] = [];
+      for (const c of vipCodes) {
+        const url = `${origin}/verify/${c}`;
+        const canvas = document.createElement("canvas");
+        await QRCode.toCanvas(canvas, url, { width: 280, color: { dark: "#d4a017", light: "#ffffff" } });
+        const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (blob) files.push(new File([blob], `vip-${c}.png`, { type: "image/png" }));
+      }
+
+      // On phones, hand the images to the native share sheet so the user can
+      // save them all to Photos (or send them straight on) in one go — no zip
+      // to unpack. Desktop browsers mostly don't support sharing files, so
+      // fall back to triggering the downloads one after another there.
+      const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files });
+      if (canShareFiles) {
+        await navigator.share({ files, title: "Codici VIP Rumba Liguria" });
+        toast.success("Salva o condividi le immagini dal pannello aperto");
+        return;
+      }
+
+      for (const file of files) {
+        const link = document.createElement("a");
+        link.download = file.name;
+        link.href = URL.createObjectURL(file);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      toast.success(`${files.length} QR scaricati!`);
+    } catch (err) {
+      // User cancelling the native share sheet throws an AbortError — not a real failure
+      if (err instanceof Error && err.name === "AbortError") return;
+      toast.error("Errore durante il download");
+    } finally {
+      setVipDownloadingAll(false);
+    }
+  };
+
   const handleToggleCheckIn = async (r: Reservation) => {
     const res = await fetch(`/api/reservations/${r.id}`, {
       method: "PATCH",
@@ -1333,6 +1377,15 @@ export default function AdminPage() {
                 </div>
                 {vipCodes.length > 0 && (
                   <div className="mt-2">
+                    {vipCodes.length > 1 && (
+                      <button
+                        onClick={handleDownloadAllVip}
+                        disabled={vipDownloadingAll}
+                        className="w-full mb-3 py-2.5 rounded-xl bg-yellow-600 text-white font-semibold text-sm hover:bg-yellow-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        {vipDownloadingAll ? "..." : `⬇️ Scarica tutti (${vipCodes.length})`}
+                      </button>
+                    )}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       {vipCodes.map((c, i) => {
                         const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
