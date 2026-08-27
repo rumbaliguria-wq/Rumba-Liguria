@@ -208,6 +208,7 @@ export default function AdminPage() {
   const [reassignEventId, setReassignEventId] = useState("");
   const [reassigning, setReassigning] = useState(false);
   const [showArchivedLinkStats, setShowArchivedLinkStats] = useState(false);
+  const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
@@ -1528,13 +1529,13 @@ export default function AdminPage() {
                     // can get reassigned across several events over time, and we
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
-                    const linkStats: Record<string, { name: string; total: number; used: number; eventTitle: string; archived: boolean }> = {};
+                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean }> = {};
                     reservations.forEach(r => {
                       const refMatch = r.user_name.match(/\[ref:([^\]]+)\]/);
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventTitle: r.events?.title || "", archived: !!r.events?.archived };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
                       }
@@ -1543,6 +1544,16 @@ export default function AdminPage() {
                     const active = all.filter(s => !s.archived);
                     const archived = all.filter(s => s.archived);
                     if (all.length === 0) return <p className="text-xs text-gray-500">Nessuna prenotazione da link ancora</p>;
+
+                    // Archived stats are grouped by event — you open the event
+                    // that already happened to see who brought how many people.
+                    const archivedByEvent: Record<string, { eventTitle: string; entries: typeof archived }> = {};
+                    archived.forEach((s) => {
+                      if (!archivedByEvent[s.eventId]) archivedByEvent[s.eventId] = { eventTitle: s.eventTitle, entries: [] };
+                      archivedByEvent[s.eventId].entries.push(s);
+                    });
+                    const archivedEvents = Object.entries(archivedByEvent);
+
                     return (
                       <>
                         {active.length === 0 ? (
@@ -1563,28 +1574,43 @@ export default function AdminPage() {
                             ))}
                           </div>
                         )}
-                        {archived.length > 0 && (
+                        {archivedEvents.length > 0 && (
                           <div className="mt-2">
                             <button
                               onClick={() => setShowArchivedLinkStats(v => !v)}
                               className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-gray-300 transition-all"
                             >
                               <Archive size={11} />
-                              {showArchivedLinkStats ? "Nascondi" : "Vedi"} archiviati ({archived.length})
+                              {showArchivedLinkStats ? "Nascondi" : "Vedi"} eventi archiviati ({archivedEvents.length})
                               <span className={`transition-transform ${showArchivedLinkStats ? "rotate-180" : ""}`}>▼</span>
                             </button>
                             {showArchivedLinkStats && (
-                              <div className="space-y-1.5 max-h-40 overflow-y-auto mt-2">
-                                {archived.map((stats) => (
-                                  <div key={`${stats.name}::${stats.eventTitle}`} className="flex items-center justify-between p-2 rounded-lg bg-white/5 opacity-60">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className="text-xs font-medium text-gray-300 truncate">{stats.name}</span>
-                                      <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                      <span className="text-[10px] text-blue-400/70">{stats.total} prenot.</span>
-                                      <span className="text-[10px] text-green-400/70">{stats.used} entrati</span>
-                                    </div>
+                              <div className="space-y-1.5 mt-2">
+                                {archivedEvents.map(([eventId, group]) => (
+                                  <div key={eventId} className="rounded-lg bg-white/5 overflow-hidden">
+                                    <button
+                                      onClick={() => setOpenArchivedLinkEvent(v => v === eventId ? null : eventId)}
+                                      className="w-full flex items-center justify-between p-2 text-left hover:bg-white/5 transition-all"
+                                    >
+                                      <span className="text-xs font-medium text-gray-300 truncate">{group.eventTitle}</span>
+                                      <span className="flex items-center gap-2 flex-shrink-0">
+                                        <span className="text-[10px] text-gray-500">{group.entries.length} link</span>
+                                        <span className={`text-[10px] text-gray-500 transition-transform ${openArchivedLinkEvent === eventId ? "rotate-180" : ""}`}>▼</span>
+                                      </span>
+                                    </button>
+                                    {openArchivedLinkEvent === eventId && (
+                                      <div className="space-y-1.5 max-h-40 overflow-y-auto px-2 pb-2">
+                                        {group.entries.map((stats) => (
+                                          <div key={stats.name} className="flex items-center justify-between p-2 rounded-lg bg-black/20">
+                                            <span className="text-xs font-medium text-gray-200 truncate">{stats.name}</span>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                              <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
+                                              <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </div>
