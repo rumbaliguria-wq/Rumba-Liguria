@@ -136,9 +136,13 @@ export default function Home() {
   const [showRentalModal, setShowRentalModal] = useState(false);
   const [rentalModalItem, setRentalModalItem] = useState<RentalItem | null>(null);
   const [rentalPhotoIndex, setRentalPhotoIndex] = useState(0);
-  // Set when arriving via a personalized RRPP link (?ref=...&eid=...) — locks
-  // the page to that single event instead of showing the whole event list.
+  // Set when arriving via a personalized RRPP link (?ref=name) — locks the
+  // page to whichever event that name is currently assigned to, instead of
+  // showing the whole event list. Resolved dynamically (not baked into the
+  // URL) so the admin can re-point the same link at a new event later.
   const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
+  const [refPending, setRefPending] = useState(false);
+  const [refExpired, setRefExpired] = useState(false);
 
 
   useEffect(() => {
@@ -158,15 +162,27 @@ export default function Home() {
     fetch("/api/admin/color").then((r) => r.json()).then((d) => {
       if (d.accent_color) setAccentColor(d.accent_color);
     }).catch(() => {});
-    // Track custom link referral from URL
+    // Track custom link referral from URL and resolve which event it
+    // currently points to (the admin can reassign a link name to a new
+    // event, so this can't just be read from the URL).
     try {
       const params = new URLSearchParams(window.location.search);
       const ref = params.get("ref");
-      const eid = params.get("eid");
-      if (ref && eid) {
+      if (ref) {
         sessionStorage.setItem("rumba_ref", ref);
-        sessionStorage.setItem("rumba_ref_eid", eid);
-        setLinkedEventId(eid);
+        setRefPending(true);
+        fetch(`/api/custom-links?name=${encodeURIComponent(ref)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.active && d.event_id) {
+              sessionStorage.setItem("rumba_ref_eid", d.event_id);
+              setLinkedEventId(d.event_id);
+            } else {
+              setRefExpired(true);
+            }
+          })
+          .catch(() => setRefExpired(true))
+          .finally(() => setRefPending(false));
       }
     } catch {}
   }, []);
@@ -461,11 +477,11 @@ export default function Home() {
   const a30 = `${a}4d`; // 30% opacity
   const a40 = `${a}66`; // 40% opacity
 
-  // Arriving via a personalized RRPP link locks the page to that one event —
-  // it's no longer in the list once its event has been archived (ended), so
-  // this naturally comes up empty for an expired link.
+  // Arriving via a personalized RRPP link locks the page to that one event.
+  // /api/custom-links already refuses to resolve an archived/reassigned-away
+  // event, and this filter is a second safety net in case it slipped through.
   const visibleEvents = linkedEventId ? events.filter((e) => e.id === linkedEventId) : events;
-  const linkExpired = !!linkedEventId && events.length > 0 && visibleEvents.length === 0;
+  const linkExpired = refExpired || (!!linkedEventId && events.length > 0 && visibleEvents.length === 0);
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
@@ -691,7 +707,11 @@ export default function Home() {
 
       {/* Events */}
         <section className="max-w-4xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
-        {linkExpired ?
+        {refPending ?
+        <div className="flex justify-center py-16 sm:py-20 animate-fade-in">
+              <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+            </div> :
+        linkExpired ?
         <div className="text-center py-16 sm:py-20 animate-fade-in">
               <Calendar size={40} className="mx-auto text-gray-600 mb-4" />
               <p className="text-gray-500 text-base sm:text-lg">Questo evento non è più disponibile</p>

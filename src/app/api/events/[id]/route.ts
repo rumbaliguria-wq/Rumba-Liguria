@@ -45,13 +45,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Once an event is archived (manually finished, or via publish_at above),
-    // its custom RRPP links no longer make sense — remove the tracking stub
-    // rows so the link stops working and disappears from the stats list.
-    // Real customer reservations are untouched.
-    if (data.archived) {
-      await supabase.from("reservations").delete().eq("event_id", id).like("code", "__LINK__%");
-    }
+    // Custom RRPP links keep their stub row when the event archives — they
+    // just stop resolving to an active event (see /api/custom-links) until
+    // the admin reassigns that same link name to a new event.
 
     // Decode sale config back for the response
     const decoded = decodeSaleConfig(data.details || "");

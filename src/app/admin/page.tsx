@@ -203,6 +203,9 @@ export default function AdminPage() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [linkGenerating, setLinkGenerating] = useState(false);
   const [allLinks, setAllLinks] = useState<{eventTitle: string; name: string; url: string}[]>([]);
+  const [reassignLinkName, setReassignLinkName] = useState<string | null>(null);
+  const [reassignEventId, setReassignEventId] = useState("");
+  const [reassigning, setReassigning] = useState(false);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
@@ -848,6 +851,26 @@ export default function AdminPage() {
     }
   };
 
+  const handleReassignLink = async (name: string) => {
+    if (!reassignEventId) return;
+    setReassigning(true);
+    try {
+      const res = await fetch("/api/custom-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: reassignEventId, name }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Link di "${name}" riassegnato al nuovo evento!`);
+        setReassignLinkName(null);
+        setReassignEventId("");
+        fetchUsers();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setReassigning(false); }
+  };
+
   const handleDeleteUser = async (id: string, email?: string) => {
     if (!confirm("Sei sicuro di voler eliminare questo utente?")) return;
     // reservation-only users have fake id like "res-email@..." — delete by email from reservations
@@ -1432,6 +1455,9 @@ export default function AdminPage() {
             </button>
             {showLinksSection && (
               <div className="p-4 rounded-xl bg-white/5 border border-blue-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Se il nome esiste già, il suo link viene riassegnato a questo evento (lo stesso link che hai già dato alla persona torna a funzionare, ora per il nuovo evento).
+                </p>
                 <div className="flex items-end gap-3 mb-3">
                   <div className="flex-1">
                     <label className="text-xs text-gray-400 mb-1 block">Evento</label>
@@ -1470,9 +1496,9 @@ export default function AdminPage() {
                         const d = await res.json();
                         if (res.ok) {
                           const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
-                          const url = `${origin}/?ref=${encodeURIComponent(linkName.trim())}&eid=${linkEventId}`;
+                          const url = `${origin}/?ref=${encodeURIComponent(linkName.trim())}`;
                           setGeneratedLink(url);
-                          toast.success("Link creato!");
+                          toast.success(d.reassigned ? "Link riassegnato a questo evento!" : "Link creato!");
                         } else toast.error(d.error || "Errore");
                       } catch { toast.error("Errore"); }
                       finally { setLinkGenerating(false); }
@@ -2259,8 +2285,9 @@ export default function AdminPage() {
                 ) : users).map((user) => (
                     <div
                       key={user.id}
-                      className="p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 flex items-center justify-between gap-2 sm:gap-3 animate-fade-in"
+                      className="rounded-xl bg-[#0a0a12] border border-blue-500/10 animate-fade-in overflow-hidden"
                     >
+                    <div className="p-3 sm:p-4 flex items-center justify-between gap-2 sm:gap-3">
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                       <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 text-xs sm:text-sm font-bold flex-shrink-0">
                         {(user.name?.[0] || user.email?.[0])?.toUpperCase() ?? "?"}
@@ -2300,6 +2327,23 @@ export default function AdminPage() {
                             <span className="hidden xs:inline">WA</span>
                           </a>
                         ) : null}
+                        {user.email?.startsWith("__link__") && (
+                          <button
+                            onClick={() => {
+                              const opening = reassignLinkName !== user.name;
+                              setReassignLinkName(opening ? (user.name ?? null) : null);
+                              setReassignEventId("");
+                            }}
+                            title="Assegna questo link a un altro evento"
+                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-all text-[10px] sm:text-xs font-medium ${
+                              reassignLinkName === user.name
+                                ? "bg-blue-500/25 text-blue-300"
+                                : "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25"
+                            }`}
+                          >
+                            🔗<span className="hidden xs:inline">Evento</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDeleteUser(user.id, user.email)}
                           className="p-1.5 sm:p-2 rounded-lg bg-white/5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all active:bg-red-500/20"
@@ -2307,6 +2351,31 @@ export default function AdminPage() {
                           <Trash2 size={14} />
                         </button>
                     </div>
+                    </div>
+                    {reassignLinkName === user.name && user.email?.startsWith("__link__") && (
+                      <div className="px-3 sm:px-4 pb-3 sm:pb-4 pt-3 border-t border-white/5 flex items-end gap-2">
+                        <div className="flex-1">
+                          <label className="text-[10px] text-gray-400 mb-1 block">Nuovo evento per &quot;{user.name}&quot;</label>
+                          <select
+                            value={reassignEventId}
+                            onChange={(e) => setReassignEventId(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                          >
+                            <option value="">Seleziona evento</option>
+                            {events.filter(e => !e.archived).map(ev => (
+                              <option key={ev.id} value={ev.id}>{ev.title}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => handleReassignLink(user.name!)}
+                          disabled={!reassignEventId || reassigning}
+                          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 transition-all disabled:opacity-50"
+                        >
+                          {reassigning ? "..." : "Conferma"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
