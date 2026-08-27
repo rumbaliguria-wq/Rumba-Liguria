@@ -192,7 +192,7 @@ export default function AdminPage() {
   const [manualLinkMode, setManualLinkMode] = useState(false);
   const [showVipSection, setShowVipSection] = useState(false);
   const [vipEventId, setVipEventId] = useState("");
-  const [vipCount, setVipCount] = useState(1);
+  const [vipCountInput, setVipCountInput] = useState("1");
   const [vipCodes, setVipCodes] = useState<string[]>([]);
   const [vipGenerating, setVipGenerating] = useState(false);
   const [vipName, setVipName] = useState("");
@@ -1336,8 +1336,9 @@ export default function AdminPage() {
                       type="number"
                       min={1}
                       max={50}
-                      value={vipCount}
-                      onChange={(e) => setVipCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+                      value={vipCountInput}
+                      onChange={(e) => setVipCountInput(e.target.value)}
+                      onBlur={() => setVipCountInput(String(Math.max(1, Math.min(50, parseInt(vipCountInput) || 1))))}
                       className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-center text-sm focus:outline-none [color-scheme:dark]"
                     />
                   </div>
@@ -1354,12 +1355,14 @@ export default function AdminPage() {
                   <button
                     onClick={async () => {
                       if (!vipEventId) { toast.error("Seleziona un evento"); return; }
+                      const count = Math.max(1, Math.min(50, parseInt(vipCountInput) || 1));
+                      setVipCountInput(String(count));
                       setVipGenerating(true);
                       try {
                         const res = await fetch("/api/reservations/vip", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ event_id: vipEventId, count: vipCount, name: vipName.trim() }),
+                          body: JSON.stringify({ event_id: vipEventId, count, name: vipName.trim() }),
                         });
                         const d = await res.json();
                         if (res.ok) {
