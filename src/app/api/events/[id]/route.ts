@@ -45,6 +45,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    // Once an event is archived (manually finished, or via publish_at above),
+    // its custom RRPP links no longer make sense — remove the tracking stub
+    // rows so the link stops working and disappears from the stats list.
+    // Real customer reservations are untouched.
+    if (data.archived) {
+      await supabase.from("reservations").delete().eq("event_id", id).like("code", "__LINK__%");
+    }
+
     // Decode sale config back for the response
     const decoded = decodeSaleConfig(data.details || "");
     return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at });

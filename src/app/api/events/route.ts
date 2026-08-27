@@ -20,12 +20,24 @@ export async function GET() {
     // Auto-archive events after 05:00 Rome the day after the event
     // (e.g. Wednesday party → archived Thursday after 05:00, not at midnight)
     const archiveThreshold = getArchiveThresholdDate();
-    await supabase
+    const { data: justArchived } = await supabase
       .from("events")
       .update({ archived: true })
       .eq("archived", false)
       .lte("event_date_iso", archiveThreshold)
-      .not("event_date_iso", "is", null);
+      .not("event_date_iso", "is", null)
+      .select("id");
+
+    // Their custom RRPP links no longer make sense once the event is over —
+    // delete the tracking stub rows so the links stop working. Real customer
+    // reservations are untouched.
+    if (justArchived && justArchived.length > 0) {
+      await supabase
+        .from("reservations")
+        .delete()
+        .in("event_id", justArchived.map((e) => e.id))
+        .like("code", "__LINK__%");
+    }
 
     const { data, error } = await supabase
       .from("events")
@@ -49,6 +61,7 @@ export async function GET() {
     // Auto-archive if archive_at is set and has passed
     if (decoded.archive_at && Date.now() >= new Date(decoded.archive_at).getTime()) {
       await supabase.from("events").update({ archived: true }).eq("id", e.id);
+      await supabase.from("reservations").delete().eq("event_id", e.id).like("code", "__LINK__%");
       return null; // will be filtered out
     }
     return {

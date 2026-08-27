@@ -136,6 +136,9 @@ export default function Home() {
   const [showRentalModal, setShowRentalModal] = useState(false);
   const [rentalModalItem, setRentalModalItem] = useState<RentalItem | null>(null);
   const [rentalPhotoIndex, setRentalPhotoIndex] = useState(0);
+  // Set when arriving via a personalized RRPP link (?ref=...&eid=...) — locks
+  // the page to that single event instead of showing the whole event list.
+  const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -163,6 +166,7 @@ export default function Home() {
       if (ref && eid) {
         sessionStorage.setItem("rumba_ref", ref);
         sessionStorage.setItem("rumba_ref_eid", eid);
+        setLinkedEventId(eid);
       }
     } catch {}
   }, []);
@@ -457,6 +461,12 @@ export default function Home() {
   const a30 = `${a}4d`; // 30% opacity
   const a40 = `${a}66`; // 40% opacity
 
+  // Arriving via a personalized RRPP link locks the page to that one event —
+  // it's no longer in the list once its event has been archived (ended), so
+  // this naturally comes up empty for an expired link.
+  const visibleEvents = linkedEventId ? events.filter((e) => e.id === linkedEventId) : events;
+  const linkExpired = !!linkedEventId && events.length > 0 && visibleEvents.length === 0;
+
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
         <style>{`
@@ -681,7 +691,13 @@ export default function Home() {
 
       {/* Events */}
         <section className="max-w-4xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
-        {events.length === 0 ?
+        {linkExpired ?
+        <div className="text-center py-16 sm:py-20 animate-fade-in">
+              <Calendar size={40} className="mx-auto text-gray-600 mb-4" />
+              <p className="text-gray-500 text-base sm:text-lg">Questo evento non è più disponibile</p>
+              <p className="text-gray-600 text-xs sm:text-sm mt-2">Il link che hai usato è scaduto perché l&apos;evento è terminato.</p>
+            </div> :
+        visibleEvents.length === 0 ?
         <div className="text-center py-16 sm:py-20 animate-fade-in">
               <Calendar size={40} className="mx-auto text-gray-600 mb-4" />
               <p className="text-gray-500 text-base sm:text-lg">{t(lang, "events.empty")}</p>
@@ -689,7 +705,7 @@ export default function Home() {
             </div> :
 
         <div className="space-y-6 sm:space-y-8">
-                {events.map((event) =>
+                {visibleEvents.map((event) =>
           <div
             key={event.id}
             className="rounded-xl sm:rounded-2xl bg-[#0a0a12] glow-border transition-all duration-500 animate-fade-in-up"
