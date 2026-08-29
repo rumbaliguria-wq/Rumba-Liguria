@@ -530,11 +530,11 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         drawRowIcon(ctx, row.icon, rowIconX, rowY);
 
         ctx.fillStyle = topColor;
-        ctx.font = "700 14px Arial";
+        ctx.font = "700 15px Arial";
         ctx.fillText(row.label, rowTextX, rowY - 5);
         ctx.fillStyle = topColor;
-        ctx.font = "18px Arial";
-        ctx.fillText(row.value, rowTextX, rowY + 18);
+        ctx.font = "20px Arial";
+        ctx.fillText(row.value, rowTextX, rowY + 19);
       });
       ctx.textAlign = "center";
 
