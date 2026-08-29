@@ -114,6 +114,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   const [detailCard, setDetailCard] = useState<(Card & { scans: ScanRecord[] }) | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [downloadLang, setDownloadLang] = useState<CardLanguage>(DEFAULT_CARD_LANGUAGE);
 
   const [events, setEvents] = useState<EventOption[]>([]);
 
@@ -317,11 +318,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const openDetail = async (card: Card) => {
     setDetailLoading(true);
     setDetailCard({ ...card, scans: [] });
+    setDownloadLang((card.language as CardLanguage) || DEFAULT_CARD_LANGUAGE);
     try {
       const res = await fetch(`/api/cards/${card.id}`);
       if (res.ok) {
         const data = await res.json();
         setDetailCard(data);
+        setDownloadLang((data.language as CardLanguage) || DEFAULT_CARD_LANGUAGE);
       }
     } catch {
       toast.error("Errore caricamento tessera");
@@ -345,11 +348,10 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   const BRAND_LOGO_URL = "https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain";
 
-  const downloadCardImage = async (card: Card) => {
+  const downloadCardImage = async (card: Card, lang: CardLanguage) => {
     try {
       // Compute rows first so we can size the canvas to fit everything —
       // otherwise the QR can end up positioned past the canvas's fixed height.
-      const lang = (card.language as CardLanguage) || DEFAULT_CARD_LANGUAGE;
       const t = CARD_TEXT[lang];
       const rows: { icon: "calendar" | "globe" | "pin" | "id"; label: string; value: string }[] = [
         { icon: "calendar" as const, label: t.birthDate, value: formatBirthDate(card.birth_date, lang) },
@@ -1230,9 +1232,22 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               <p className="text-center text-gray-500 text-sm py-2">Nessun ingresso registrato ancora</p>
             )}
 
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Lingua tessera da scaricare</label>
+              <select
+                value={downloadLang}
+                onChange={(e) => setDownloadLang(e.target.value as CardLanguage)}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
+              >
+                {CARD_LANGUAGES.map((l) => (
+                  <option key={l} value={l} className="bg-[#0a0a12] text-white">{CARD_LANGUAGE_LABELS[l]}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => downloadCardImage(detailCard)}
+                onClick={() => downloadCardImage(detailCard, downloadLang)}
                 className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-all text-sm font-medium"
               >
                 <Download size={14} />
