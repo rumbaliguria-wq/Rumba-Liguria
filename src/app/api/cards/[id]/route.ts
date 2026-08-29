@@ -57,6 +57,7 @@ export async function PUT(
   if (body.notes !== undefined) updates.notes = body.notes || null;
   if (body.gender !== undefined) updates.gender = body.gender || null;
   if (body.language !== undefined) updates.language = body.language || "it";
+  if (body.card_color !== undefined) updates.card_color = body.card_color || "#111111";
   if (body.inactive_reason !== undefined) updates.inactive_reason = body.inactive_reason || null;
   if (typeof body.active === "boolean") updates.active = body.active;
 

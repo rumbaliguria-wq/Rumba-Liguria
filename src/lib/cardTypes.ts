@@ -21,6 +21,21 @@ export const CARD_TEXT: Record<
   en: { birthDate: "DATE OF BIRTH", country: "COUNTRY", city: "CITY", cardType: "CARD TYPE", cardPill: "CARD", dateLocale: "en-US" },
 };
 
+// Colore del pannello superiore della tessera (sostituisce la vecchia logica
+// automatica basata sul genere) — l'admin sceglie liberamente il colore.
+export const DEFAULT_CARD_COLOR = "#111111";
+
+export const CARD_COLOR_PRESETS: { value: string; label: string }[] = [
+  { value: "#111111", label: "Nero" },
+  { value: "#0f2a5c", label: "Blu notte" },
+  { value: "#7a1f4b", label: "Bordeaux" },
+  { value: "#7a1f1f", label: "Rosso" },
+  { value: "#8a4a12", label: "Arancione" },
+  { value: "#4a1f7a", label: "Viola" },
+  { value: "#1f6a5c", label: "Verde acqua" },
+  { value: "#7a6a1f", label: "Oro" },
+];
+
 const ID_TYPE_LABELS_BY_LANG: Record<CardLanguage, Record<string, string>> = {
   it: { UNIVERSITARIO: "Universitario", ERASMUS: "Erasmus", VIP: "Cliente VIP", CLIENTE: "Cliente" },
   es: { UNIVERSITARIO: "Universitario", ERASMUS: "Erasmus", VIP: "Cliente VIP", CLIENTE: "Cliente" },

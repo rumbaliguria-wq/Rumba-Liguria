@@ -185,3 +185,4 @@ alter table public.card_scans add column if not exists event_id uuid references 
 alter table public.client_cards add column if not exists inactive_reason text;
 alter table public.client_cards add column if not exists gender text;
 alter table public.client_cards add column if not exists language text not null default 'it';
+alter table public.client_cards add column if not exists card_color text not null default '#111111';

@@ -38,6 +38,8 @@ import {
   CARD_LANGUAGE_LABELS,
   CARD_TEXT,
   DEFAULT_CARD_LANGUAGE,
+  CARD_COLOR_PRESETS,
+  DEFAULT_CARD_COLOR,
   type CardLanguage,
 } from "@/lib/cardTypes";
 
@@ -56,6 +58,7 @@ interface Card {
   notes: string | null;
   gender: string | null;
   language: string | null;
+  card_color: string | null;
   active: boolean;
   inactive_reason: string | null;
   created_at: string;
@@ -97,6 +100,7 @@ const EMPTY_FORM = {
   notes: "",
   gender: "",
   language: DEFAULT_CARD_LANGUAGE as string,
+  card_color: DEFAULT_CARD_COLOR,
 };
 
 export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScannerTrigger?: number }) {
@@ -115,6 +119,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const [detailCard, setDetailCard] = useState<(Card & { scans: ScanRecord[] }) | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [downloadLang, setDownloadLang] = useState<CardLanguage>(DEFAULT_CARD_LANGUAGE);
+  const [downloadColor, setDownloadColor] = useState<string>(DEFAULT_CARD_COLOR);
 
   const [events, setEvents] = useState<EventOption[]>([]);
 
@@ -195,6 +200,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       notes: card.notes || "",
       gender: card.gender || "",
       language: card.language || DEFAULT_CARD_LANGUAGE,
+      card_color: card.card_color || DEFAULT_CARD_COLOR,
     });
     setShowForm(true);
   };
@@ -251,6 +257,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       notes: formData.notes.trim(),
       gender: formData.gender,
       language: formData.language || DEFAULT_CARD_LANGUAGE,
+      card_color: formData.card_color || DEFAULT_CARD_COLOR,
     };
     try {
       const res = editingCard
@@ -319,12 +326,14 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     setDetailLoading(true);
     setDetailCard({ ...card, scans: [] });
     setDownloadLang((card.language as CardLanguage) || DEFAULT_CARD_LANGUAGE);
+    setDownloadColor(card.card_color || DEFAULT_CARD_COLOR);
     try {
       const res = await fetch(`/api/cards/${card.id}`);
       if (res.ok) {
         const data = await res.json();
         setDetailCard(data);
         setDownloadLang((data.language as CardLanguage) || DEFAULT_CARD_LANGUAGE);
+        setDownloadColor(data.card_color || DEFAULT_CARD_COLOR);
       }
     } catch {
       toast.error("Errore caricamento tessera");
@@ -348,7 +357,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   const BRAND_LOGO_URL = "https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain";
 
-  const downloadCardImage = async (card: Card, lang: CardLanguage) => {
+  const downloadCardImage = async (card: Card, lang: CardLanguage, color: string) => {
     try {
       // Compute rows first so we can size the canvas to fit everything —
       // otherwise the QR can end up positioned past the canvas's fixed height.
@@ -400,7 +409,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       ctx.clip();
 
       // White base + black top panel (its straight bottom edge forms the divide)
-      const topColor = card.gender === "M" ? "#0f2a5c" : card.gender === "F" ? "#7a1f4b" : "#111111";
+      const topColor = color || DEFAULT_CARD_COLOR;
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = topColor;
@@ -1111,6 +1120,35 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               </div>
             </div>
 
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Colore Tessera</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {CARD_COLOR_PRESETS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    title={c.label}
+                    onClick={() => setFormData((p) => ({ ...p, card_color: c.value }))}
+                    style={{ backgroundColor: c.value }}
+                    className={`w-8 h-8 rounded-full border-2 transition-all ${
+                      formData.card_color.toLowerCase() === c.value.toLowerCase() ? "border-blue-400 scale-110" : "border-white/20"
+                    }`}
+                  />
+                ))}
+                <label
+                  title="Colore personalizzato"
+                  className="relative w-8 h-8 rounded-full border-2 border-white/20 cursor-pointer overflow-hidden flex items-center justify-center bg-[conic-gradient(from_0deg,red,yellow,lime,cyan,blue,magenta,red)]"
+                >
+                  <input
+                    type="color"
+                    value={formData.card_color}
+                    onChange={(e) => setFormData((p) => ({ ...p, card_color: e.target.value }))}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </label>
+              </div>
+            </div>
+
             {formData.id_type_preset === "OTRO" && (
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Specifica il tipo</label>
@@ -1245,9 +1283,38 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               </select>
             </div>
 
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Colore tessera da scaricare</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {CARD_COLOR_PRESETS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    title={c.label}
+                    onClick={() => setDownloadColor(c.value)}
+                    style={{ backgroundColor: c.value }}
+                    className={`w-8 h-8 rounded-full border-2 transition-all ${
+                      downloadColor.toLowerCase() === c.value.toLowerCase() ? "border-blue-400 scale-110" : "border-white/20"
+                    }`}
+                  />
+                ))}
+                <label
+                  title="Colore personalizzato"
+                  className="relative w-8 h-8 rounded-full border-2 border-white/20 cursor-pointer overflow-hidden flex items-center justify-center bg-[conic-gradient(from_0deg,red,yellow,lime,cyan,blue,magenta,red)]"
+                >
+                  <input
+                    type="color"
+                    value={downloadColor}
+                    onChange={(e) => setDownloadColor(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </label>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => downloadCardImage(detailCard, downloadLang)}
+                onClick={() => downloadCardImage(detailCard, downloadLang, downloadColor)}
                 className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-all text-sm font-medium"
               >
                 <Download size={14} />

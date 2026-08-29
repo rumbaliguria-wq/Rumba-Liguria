@@ -130,6 +130,7 @@ create table if not exists public.client_cards (
   notes text,
   gender text, -- M | F
   language text not null default 'it', -- it | es | en (lingua della tessera scaricabile)
+  card_color text not null default '#111111', -- colore hex del pannello superiore della tessera
   active boolean not null default true,
   inactive_reason text, -- motivo indicato quando la tessera viene disattivata
   created_at timestamptz not null default now()

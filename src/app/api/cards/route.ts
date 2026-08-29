@@ -62,6 +62,7 @@ export async function POST(req: Request) {
       notes: body.notes || null,
       gender: body.gender || null,
       language: body.language || "it",
+      card_color: body.card_color || "#111111",
     })
     .select()
     .single();
