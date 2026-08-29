@@ -184,3 +184,4 @@ where id_type is null and card_type is not null;
 alter table public.card_scans add column if not exists event_id uuid references public.events(id) on delete set null;
 alter table public.client_cards add column if not exists inactive_reason text;
 alter table public.client_cards add column if not exists gender text;
+alter table public.client_cards add column if not exists language text not null default 'it';

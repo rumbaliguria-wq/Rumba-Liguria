@@ -30,7 +30,16 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
-import { ID_TYPE_PRESETS, encodeIdType, decodeIdType } from "@/lib/cardTypes";
+import {
+  ID_TYPE_PRESETS,
+  encodeIdType,
+  decodeIdType,
+  CARD_LANGUAGES,
+  CARD_LANGUAGE_LABELS,
+  CARD_TEXT,
+  DEFAULT_CARD_LANGUAGE,
+  type CardLanguage,
+} from "@/lib/cardTypes";
 
 interface Card {
   id: string;
@@ -46,6 +55,7 @@ interface Card {
   photo_url: string | null;
   notes: string | null;
   gender: string | null;
+  language: string | null;
   active: boolean;
   inactive_reason: string | null;
   created_at: string;
@@ -86,6 +96,7 @@ const EMPTY_FORM = {
   photo_url: "",
   notes: "",
   gender: "",
+  language: DEFAULT_CARD_LANGUAGE as string,
 };
 
 export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScannerTrigger?: number }) {
@@ -182,6 +193,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       photo_url: card.photo_url || "",
       notes: card.notes || "",
       gender: card.gender || "",
+      language: card.language || DEFAULT_CARD_LANGUAGE,
     });
     setShowForm(true);
   };
@@ -237,6 +249,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       photo_url: formData.photo_url,
       notes: formData.notes.trim(),
       gender: formData.gender,
+      language: formData.language || DEFAULT_CARD_LANGUAGE,
     };
     try {
       const res = editingCard
@@ -319,12 +332,15 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   // ─── Downloadable card image ───
 
-  const formatBirthDate = (raw: string | null): string => {
+  const formatBirthDate = (raw: string | null, lang: CardLanguage): string => {
     if (!raw) return "";
     const [y, m, d] = raw.split("-").map(Number);
     if (!y || !m || !d) return raw;
-    const str = new Date(y, m - 1, d).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
-    return str.replace(/ de (\p{L})/u, (full, letter) => ` de ${letter.toUpperCase()}`);
+    const str = new Date(y, m - 1, d).toLocaleDateString(CARD_TEXT[lang].dateLocale, { day: "numeric", month: "long", year: "numeric" });
+    if (lang === "es") {
+      return str.replace(/ de (\p{L})/u, (full, letter) => ` de ${letter.toUpperCase()}`);
+    }
+    return str;
   };
 
   const BRAND_LOGO_URL = "https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain";
@@ -333,11 +349,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     try {
       // Compute rows first so we can size the canvas to fit everything —
       // otherwise the QR can end up positioned past the canvas's fixed height.
+      const lang = (card.language as CardLanguage) || DEFAULT_CARD_LANGUAGE;
+      const t = CARD_TEXT[lang];
       const rows: { icon: "calendar" | "globe" | "pin" | "id"; label: string; value: string }[] = [
-        { icon: "calendar" as const, label: "DÍA DE NACIMIENTO", value: formatBirthDate(card.birth_date) },
-        { icon: "globe" as const, label: "PAÍS", value: card.country || "" },
-        { icon: "pin" as const, label: "CIUDAD", value: card.city || "" },
-        { icon: "id" as const, label: "TIPO DE TARJETA", value: decodeIdType(card.id_type).label },
+        { icon: "calendar" as const, label: t.birthDate, value: formatBirthDate(card.birth_date, lang) },
+        { icon: "globe" as const, label: t.country, value: card.country || "" },
+        { icon: "pin" as const, label: t.city, value: card.city || "" },
+        { icon: "id" as const, label: t.cardType, value: decodeIdType(card.id_type, lang).label },
       ].filter((r) => r.value && r.value !== "—");
 
       const W = 640, RADIUS = 24;
@@ -438,7 +456,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
       // Black pill badge with brand
       ctx.font = "700 12px Arial";
-      const line1 = "TARJETA";
+      const line1 = t.cardPill;
       ctx.font = "700 20px Arial";
       const line2 = "Rumba Liguria";
       const line2Width = ctx.measureText(line2).width;
@@ -1064,17 +1082,31 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               </div>
             </div>
 
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Genere</label>
-              <select
-                value={formData.gender}
-                onChange={(e) => setFormData((p) => ({ ...p, gender: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
-              >
-                <option value="" className="bg-[#0a0a12] text-white">Non specificato</option>
-                <option value="M" className="bg-[#0a0a12] text-white">Uomo</option>
-                <option value="F" className="bg-[#0a0a12] text-white">Donna</option>
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Genere</label>
+                <select
+                  value={formData.gender}
+                  onChange={(e) => setFormData((p) => ({ ...p, gender: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
+                >
+                  <option value="" className="bg-[#0a0a12] text-white">Non specificato</option>
+                  <option value="M" className="bg-[#0a0a12] text-white">Uomo</option>
+                  <option value="F" className="bg-[#0a0a12] text-white">Donna</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Lingua Tessera</label>
+                <select
+                  value={formData.language}
+                  onChange={(e) => setFormData((p) => ({ ...p, language: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
+                >
+                  {CARD_LANGUAGES.map((l) => (
+                    <option key={l} value={l} className="bg-[#0a0a12] text-white">{CARD_LANGUAGE_LABELS[l]}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {formData.id_type_preset === "OTRO" && (

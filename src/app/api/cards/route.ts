@@ -61,6 +61,7 @@ export async function POST(req: Request) {
       photo_url: body.photo_url || null,
       notes: body.notes || null,
       gender: body.gender || null,
+      language: body.language || "it",
     })
     .select()
     .single();

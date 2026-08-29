@@ -129,6 +129,7 @@ create table if not exists public.client_cards (
   photo_url text,
   notes text,
   gender text, -- M | F
+  language text not null default 'it', -- it | es | en (lingua della tessera scaricabile)
   active boolean not null default true,
   inactive_reason text, -- motivo indicato quando la tessera viene disattivata
   created_at timestamptz not null default now()
