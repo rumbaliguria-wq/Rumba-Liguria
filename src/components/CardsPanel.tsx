@@ -460,8 +460,8 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         ctx.fillText(initials || "?", photoCx, photoCy + 20);
       }
 
-      // Name, in script
-      ctx.fillStyle = "#111111";
+      // Name, in script — colored to match the card's chosen color
+      ctx.fillStyle = topColor;
       ctx.font = "56px 'Segoe Script', 'Brush Script MT', cursive";
       wrapCenteredText(ctx, card.full_name, W / 2, nameY, W - 60, 60);
 
@@ -529,10 +529,10 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         ctx.fill();
         drawRowIcon(ctx, row.icon, rowIconX, rowY);
 
-        ctx.fillStyle = "#111111";
+        ctx.fillStyle = topColor;
         ctx.font = "700 14px Arial";
         ctx.fillText(row.label, rowTextX, rowY - 5);
-        ctx.fillStyle = "#666666";
+        ctx.fillStyle = topColor;
         ctx.font = "18px Arial";
         ctx.fillText(row.value, rowTextX, rowY + 18);
       });
