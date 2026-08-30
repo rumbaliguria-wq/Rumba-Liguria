@@ -63,6 +63,7 @@ create table if not exists public.reservations (
   user_name text,
   guest_count integer not null default 1,
   status text not null default 'active', -- active | used | cancelled
+  vip_number integer, -- numero fisso e progressivo per evento (solo per user_email = '__vip__')
   created_at timestamptz not null default now()
 );
 

@@ -125,6 +125,33 @@ interface RentalConfig {
   enabled: boolean;
 }
 
+// Disegna il QR VIP con il suo numero fisso al centro — usa errorCorrectionLevel
+// "H" (tollera fino al ~30% di area coperta) così il badge del numero non
+// rompe la leggibilità del codice.
+async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanvasElement> {
+  const size = 280;
+  const canvas = document.createElement("canvas");
+  await QRCode.toCanvas(canvas, url, { width: size, margin: 1, errorCorrectionLevel: "H", color: { dark: "#d4a017", light: "#ffffff" } });
+  const ctx = canvas.getContext("2d")!;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const badgeR = size * 0.16;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#d4a017";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeR, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#111111";
+  ctx.font = `700 ${Math.round(badgeR * (String(vipNumber).length > 2 ? 0.85 : 1.1))}px Arial`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(vipNumber), cx, cy + 1);
+  return canvas;
+}
+
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -194,10 +221,12 @@ export default function AdminPage() {
   const [showVipSection, setShowVipSection] = useState(false);
   const [vipEventId, setVipEventId] = useState("");
   const [vipCountInput, setVipCountInput] = useState("1");
-  const [vipCodes, setVipCodes] = useState<string[]>([]);
+  const [vipCodes, setVipCodes] = useState<{ code: string; vip_number: number }[]>([]);
   const [vipGenerating, setVipGenerating] = useState(false);
   const [vipName, setVipName] = useState("");
   const [vipDownloadingAll, setVipDownloadingAll] = useState(false);
+  const [vipStatusList, setVipStatusList] = useState<{ id: string; code: string; vip_number: number | null; user_name: string; status: string }[]>([]);
+  const [vipStatusLoading, setVipStatusLoading] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
@@ -802,12 +831,11 @@ export default function AdminPage() {
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
       const files: File[] = [];
-      for (const c of vipCodes) {
-        const url = `${origin}/verify/${c}`;
-        const canvas = document.createElement("canvas");
-        await QRCode.toCanvas(canvas, url, { width: 280, color: { dark: "#d4a017", light: "#ffffff" } });
+      for (const item of vipCodes) {
+        const url = `${origin}/verify/${item.code}`;
+        const canvas = await drawVipQRCanvas(url, item.vip_number);
         const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-        if (blob) files.push(new File([blob], `vip-${c}.png`, { type: "image/png" }));
+        if (blob) files.push(new File([blob], `vip-${item.vip_number}-${item.code}.png`, { type: "image/png" }));
       }
 
       // On phones, hand the images to the native share sheet so the user can
@@ -836,6 +864,21 @@ export default function AdminPage() {
       toast.error("Errore durante il download");
     } finally {
       setVipDownloadingAll(false);
+    }
+  };
+
+  const fetchVipStatus = async () => {
+    if (!vipEventId) { toast.error("Seleziona un evento"); return; }
+    setVipStatusLoading(true);
+    try {
+      const res = await fetch(`/api/reservations/vip?event_id=${vipEventId}`);
+      const data = await res.json();
+      if (res.ok) setVipStatusList(data);
+      else toast.error(data.error || "Errore");
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setVipStatusLoading(false);
     }
   };
 
@@ -1394,6 +1437,7 @@ export default function AdminPage() {
                         if (res.ok) {
                           setVipCodes(d.codes || []);
                           toast.success(`${d.count} codici VIP generati!`);
+                          fetchVipStatus();
                         } else toast.error(d.error || "Errore");
                       } catch { toast.error("Errore"); }
                       finally { setVipGenerating(false); }
@@ -1416,33 +1460,72 @@ export default function AdminPage() {
                       </button>
                     )}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {vipCodes.map((c, i) => {
+                      {vipCodes.map((item) => {
                         const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
-                        const url = `${origin}/verify/${c}`;
+                        const url = `${origin}/verify/${item.code}`;
                         return (
-                          <div key={i} className="flex flex-col items-center gap-2 p-3 rounded-xl bg-white/5 border border-yellow-500/20">
-                            <QRCodeSVG value={url} fgColor="#d4a017" size={120} />
+                          <div key={item.code} className="flex flex-col items-center gap-2 p-3 rounded-xl bg-white/5 border border-yellow-500/20">
+                            <div className="relative">
+                              <QRCodeSVG value={url} fgColor="#d4a017" size={120} />
+                              <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white border-2 border-yellow-600 flex items-center justify-center text-xs font-bold text-[#111111]">
+                                {item.vip_number}
+                              </span>
+                            </div>
                             <span className="text-[9px] font-mono text-gray-400 truncate w-full text-center">{vipName || "—"}</span>
                             <button
                               onClick={async () => {
                                 try {
-                                  const canvas = document.createElement("canvas");
-                                  await QRCode.toCanvas(canvas, url, { width: 280, color: { dark: "#d4a017", light: "#ffffff" } });
+                                  const canvas = await drawVipQRCanvas(url, item.vip_number);
                                   const link = document.createElement("a");
-                                  link.download = `vip-${c}.png`;
+                                  link.download = `vip-${item.vip_number}-${item.code}.png`;
                                   link.href = canvas.toDataURL("image/png");
                                   link.click();
                                   toast.success("QR scaricato!");
                                 } catch { toast.error("Errore download"); }
                               }}
                               className="w-full py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-all text-[10px] font-medium"
-                            >Scarica QR Oro</button>
+                            >Scarica QR Oro #{item.vip_number}</button>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 )}
+
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <button
+                    onClick={fetchVipStatus}
+                    disabled={vipStatusLoading || !vipEventId}
+                    className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition-all text-sm font-medium disabled:opacity-50"
+                  >
+                    {vipStatusLoading ? "Caricamento..." : "👀 Vedi stato ingressi VIP di questo evento"}
+                  </button>
+                  {vipStatusList.length > 0 && (
+                    <div className="mt-3 space-y-1.5 max-h-72 overflow-y-auto">
+                      {vipStatusList
+                        .slice()
+                        .sort((a, b) => (a.vip_number ?? 0) - (b.vip_number ?? 0))
+                        .map((r) => (
+                          <div
+                            key={r.id}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${
+                              r.status === "used"
+                                ? "bg-green-500/10 border border-green-500/20"
+                                : r.status === "cancelled"
+                                ? "bg-red-500/10 border border-red-500/20 opacity-60"
+                                : "bg-white/5 border border-white/10"
+                            }`}
+                          >
+                            <span className="font-mono font-bold text-yellow-400 flex-shrink-0">#{r.vip_number ?? "—"}</span>
+                            <span className="text-gray-300 truncate flex-1 mx-2">{r.user_name || "—"}</span>
+                            <span className={`flex-shrink-0 ${r.status === "used" ? "text-green-400" : r.status === "cancelled" ? "text-red-400" : "text-gray-500"}`}>
+                              {r.status === "used" ? "✅ Entrato" : r.status === "cancelled" ? "🚫 Annullato" : "⏳ In attesa"}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

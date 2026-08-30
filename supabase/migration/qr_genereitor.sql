@@ -186,3 +186,4 @@ alter table public.client_cards add column if not exists inactive_reason text;
 alter table public.client_cards add column if not exists gender text;
 alter table public.client_cards add column if not exists language text not null default 'it';
 alter table public.client_cards add column if not exists card_color text not null default '#111111';
+alter table public.reservations add column if not exists vip_number integer;
