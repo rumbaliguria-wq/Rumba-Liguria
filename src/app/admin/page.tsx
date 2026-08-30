@@ -229,6 +229,7 @@ export default function AdminPage() {
   const [vipStatusLoading, setVipStatusLoading] = useState(false);
   const [vipDeletingCode, setVipDeletingCode] = useState<string | null>(null);
   const [vipBulkDeleting, setVipBulkDeleting] = useState(false);
+  const [vipSelectedCodes, setVipSelectedCodes] = useState<Set<string>>(new Set());
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
@@ -875,8 +876,10 @@ export default function AdminPage() {
     try {
       const res = await fetch(`/api/reservations/vip?event_id=${vipEventId}`);
       const data = await res.json();
-      if (res.ok) setVipStatusList(data);
-      else toast.error(data.error || "Errore");
+      if (res.ok) {
+        setVipStatusList(data);
+        setVipSelectedCodes(new Set());
+      } else toast.error(data.error || "Errore");
     } catch {
       toast.error("Errore di connessione");
     } finally {
@@ -884,23 +887,35 @@ export default function AdminPage() {
     }
   };
 
+  // Shared by the single-row delete button and both bulk-delete actions.
+  const deleteVipCodes = async (codes: string[]) => {
+    const results = await Promise.all(
+      codes.map((code) =>
+        fetch("/api/reservations/vip", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        }).then((res) => ({ code, ok: res.ok }))
+      )
+    );
+    const deletedCodes = new Set(results.filter((r) => r.ok).map((r) => r.code));
+    setVipStatusList((prev) => prev.filter((r) => !deletedCodes.has(r.code)));
+    setVipCodes((prev) => prev.filter((c) => !deletedCodes.has(c.code)));
+    setVipSelectedCodes((prev) => {
+      const next = new Set(prev);
+      deletedCodes.forEach((c) => next.delete(c));
+      return next;
+    });
+    return { deletedCount: deletedCodes.size, failedCount: results.length - deletedCodes.size };
+  };
+
   const handleDeleteVipCode = async (code: string) => {
     if (!confirm("Eliminare definitivamente questo codice VIP?")) return;
     setVipDeletingCode(code);
     try {
-      const res = await fetch("/api/reservations/vip", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      if (res.ok) {
-        setVipStatusList((prev) => prev.filter((r) => r.code !== code));
-        setVipCodes((prev) => prev.filter((c) => c.code !== code));
-        toast.success("Codice eliminato!");
-      } else {
-        const data = await res.json();
-        toast.error(data.error || "Errore eliminazione");
-      }
+      const { deletedCount, failedCount } = await deleteVipCodes([code]);
+      if (deletedCount > 0) toast.success("Codice eliminato!");
+      else if (failedCount > 0) toast.error("Errore eliminazione");
     } catch {
       toast.error("Errore di connessione");
     } finally {
@@ -909,26 +924,30 @@ export default function AdminPage() {
   };
 
   const handleDeleteAllCancelledVip = async () => {
-    const toDelete = vipStatusList.filter((r) => r.status === "cancelled");
+    const toDelete = vipStatusList.filter((r) => r.status === "cancelled").map((r) => r.code);
     if (toDelete.length === 0) return;
     if (!confirm(`Eliminare definitivamente ${toDelete.length} codici annullati?`)) return;
     setVipBulkDeleting(true);
     try {
-      const results = await Promise.all(
-        toDelete.map((r) =>
-          fetch("/api/reservations/vip", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: r.code }),
-          }).then((res) => ({ code: r.code, ok: res.ok }))
-        )
-      );
-      const deletedCodes = new Set(results.filter((r) => r.ok).map((r) => r.code));
-      setVipStatusList((prev) => prev.filter((r) => !deletedCodes.has(r.code)));
-      setVipCodes((prev) => prev.filter((c) => !deletedCodes.has(c.code)));
-      const failed = results.length - deletedCodes.size;
-      if (failed > 0) toast.error(`${deletedCodes.size} eliminati, ${failed} falliti`);
-      else toast.success(`${deletedCodes.size} codici eliminati!`);
+      const { deletedCount, failedCount } = await deleteVipCodes(toDelete);
+      if (failedCount > 0) toast.error(`${deletedCount} eliminati, ${failedCount} falliti`);
+      else toast.success(`${deletedCount} codici eliminati!`);
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setVipBulkDeleting(false);
+    }
+  };
+
+  const handleDeleteSelectedVip = async () => {
+    const toDelete = Array.from(vipSelectedCodes);
+    if (toDelete.length === 0) return;
+    if (!confirm(`Eliminare definitivamente ${toDelete.length} codici selezionati?`)) return;
+    setVipBulkDeleting(true);
+    try {
+      const { deletedCount, failedCount } = await deleteVipCodes(toDelete);
+      if (failedCount > 0) toast.error(`${deletedCount} eliminati, ${failedCount} falliti`);
+      else toast.success(`${deletedCount} codici eliminati!`);
     } catch {
       toast.error("Errore di connessione");
     } finally {
@@ -1556,17 +1575,39 @@ export default function AdminPage() {
                   </button>
                   {vipStatusList.length > 0 && (
                     <>
-                      {vipStatusList.some((r) => r.status === "cancelled") && (
-                        <button
-                          onClick={handleDeleteAllCancelledVip}
-                          disabled={vipBulkDeleting}
-                          className="w-full mt-3 py-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-xs font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
-                        >
-                          <Trash2 size={13} />
-                          {vipBulkDeleting ? "Eliminazione..." : `Elimina tutti gli annullati (${vipStatusList.filter((r) => r.status === "cancelled").length})`}
-                        </button>
-                      )}
-                      <div className="mt-3 space-y-1.5 max-h-72 overflow-y-auto">
+                      <div className="flex items-center justify-between mt-3 gap-2">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={vipSelectedCodes.size > 0 && vipSelectedCodes.size === vipStatusList.length}
+                            onChange={(e) => setVipSelectedCodes(e.target.checked ? new Set(vipStatusList.map((r) => r.code)) : new Set())}
+                            className="w-3.5 h-3.5 accent-red-500"
+                          />
+                          Seleziona tutti ({vipStatusList.length})
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {vipSelectedCodes.size > 0 && (
+                            <button
+                              onClick={handleDeleteSelectedVip}
+                              disabled={vipBulkDeleting}
+                              className="py-1.5 px-3 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              <Trash2 size={12} />
+                              {vipBulkDeleting ? "Eliminazione..." : `Elimina selezionati (${vipSelectedCodes.size})`}
+                            </button>
+                          )}
+                          {vipStatusList.some((r) => r.status === "cancelled") && (
+                            <button
+                              onClick={handleDeleteAllCancelledVip}
+                              disabled={vipBulkDeleting}
+                              className="py-1.5 px-3 rounded-full bg-white/5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              {vipBulkDeleting ? "..." : `Annullati (${vipStatusList.filter((r) => r.status === "cancelled").length})`}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1.5 max-h-72 overflow-y-auto">
                         {vipStatusList
                           .slice()
                           .sort((a, b) => (a.vip_number ?? 0) - (b.vip_number ?? 0))
@@ -1581,6 +1622,17 @@ export default function AdminPage() {
                                   : "bg-white/5 border border-white/10"
                               }`}
                             >
+                              <input
+                                type="checkbox"
+                                checked={vipSelectedCodes.has(r.code)}
+                                onChange={(e) => setVipSelectedCodes((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(r.code);
+                                  else next.delete(r.code);
+                                  return next;
+                                })}
+                                className="flex-shrink-0 w-3.5 h-3.5 accent-red-500"
+                              />
                               <span className="font-mono font-bold text-yellow-400 flex-shrink-0">#{r.vip_number ?? "—"}</span>
                               <span className="text-gray-300 truncate flex-1">{r.user_name || "—"}</span>
                               <span className={`flex-shrink-0 ${r.status === "used" ? "text-green-400" : r.status === "cancelled" ? "text-red-400" : "text-gray-500"}`}>
