@@ -19,16 +19,18 @@ export async function GET(req: NextRequest) {
 
   if (eventId) query = query.eq("event_id", eventId);
 
-  const { data, error } = await query.order("vip_number", { ascending: true, nullsFirst: false });
+  const { data, error } = await query
+    .order("vip_number", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
 
-// POST: generate VIP codes for an event, numbered sequentially per event
-// (the numbering never restarts — it keeps counting from the highest number
-// already given out for that event, so entries stay unambiguous when you
-// generate several batches for the same evento).
+// POST: generate VIP codes for an event. Each generation is its own personal
+// batch (it carries the requester's name), so the numbering restarts at 1
+// every time instead of continuing across the whole event — the name is
+// what disambiguates two codes with the same number.
 export async function POST(req: NextRequest) {
   const { event_id, count = 1, name } = await req.json();
   if (!event_id) {
@@ -37,16 +39,7 @@ export async function POST(req: NextRequest) {
 
   const supabase = getServiceClient();
 
-  const { data: last } = await supabase
-    .from("reservations")
-    .select("vip_number")
-    .eq("event_id", event_id)
-    .eq("user_email", "__vip__")
-    .order("vip_number", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  let nextNumber = (last?.vip_number || 0) + 1;
+  let nextNumber = 1;
 
   const toInsert = [];
   const codes: { code: string; vip_number: number }[] = [];
