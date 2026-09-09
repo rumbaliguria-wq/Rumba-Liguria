@@ -2481,22 +2481,6 @@ export default function AdminPage() {
                                 placeholder="es. Entrada Hombre"
                                 className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
                               />
-                              <div className="relative w-24">
-                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">€</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.5"
-                                  value={tt.price ?? ""}
-                                  onChange={(e) => {
-                                    const next = [...formTicketTypes];
-                                    next[i].price = e.target.value === "" ? undefined : Number(e.target.value);
-                                    setFormTicketTypes(next);
-                                  }}
-                                  placeholder="Gratis"
-                                  className="w-full pl-6 pr-2 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
-                                />
-                              </div>
                               <input
                                 type="color"
                                 value={tt.color}

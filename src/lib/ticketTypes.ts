@@ -1,9 +1,6 @@
 export interface TicketType {
   name: string;
   color: string;
-  // Precio en euros (p.ej. 12.5). Vacío/0 = entrada gratis (flujo de WhatsApp,
-  // sin pasar por la pasarela de pago).
-  price?: number;
 }
 
 const TT_MARKER = "|||TTYPES:";

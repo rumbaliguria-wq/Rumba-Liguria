@@ -5,9 +5,8 @@ import { decodePhoneField } from "@/lib/userPhone";
 import { getEventExpiryUTC, getSaleCloseUTC } from "@/lib/eventExpiry";
 import { decodeSaleConfig } from "@/lib/saleConfig";
 
-// Compartida entre la reserva gratis (api/reservations) y la confirmación de
-// pago de Stripe (api/checkout/webhook) — así ambos caminos generan los
-// códigos/QR y mandan el mismo email de la misma forma.
+// Extraído de api/reservations para poder reutilizar la generación de
+// códigos/QR y el envío del email de confirmación desde otros lugares.
 
 function generateCode(): string {
   return crypto.randomBytes(6).toString("hex").toUpperCase();
@@ -80,7 +79,6 @@ export async function createReservationsAndNotify({
   ticket_type,
   referral,
   origin,
-  stripe_session_id,
 }: {
   supabase: SupabaseClient;
   event_id: string;
@@ -91,7 +89,6 @@ export async function createReservationsAndNotify({
   ticket_type?: string;
   referral?: string;
   origin: string;
-  stripe_session_id?: string;
 }) {
   const ticketsToCreate = [];
   const codes: string[] = [];
@@ -124,7 +121,6 @@ export async function createReservationsAndNotify({
       user_name: displayName,
       guest_count: 1,
       status: "active",
-      ...(stripe_session_id ? { stripe_session_id } : {}),
     });
   }
 

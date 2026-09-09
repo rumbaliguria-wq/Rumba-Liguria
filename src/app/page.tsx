@@ -622,10 +622,8 @@ export default function Home() {
   const confirmReservation = async (event: Event) => {
     if (!reservation || !userEmail) return;
     setReserving(true);
-    const selectedType = event.ticket_types?.find(tt => tt.name === reservation.ticketType);
-    const isPaid = !!selectedType?.price;
     try {
-      const res = await fetch(isPaid ? "/api/checkout/create-session" : "/api/reservations", {
+      const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -638,13 +636,6 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || t(lang, "reservation.error"));
-
-      if (isPaid) {
-        // Redirige a la página de pago de Stripe — la reserva/QR se crean
-        // recién cuando vuelva confirmado, no acá.
-        window.location.href = data.url;
-        return;
-      }
 
       const codes = data.map((t: {code: string}) => t.code);
       setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypes: event.ticket_types });
@@ -1421,9 +1412,6 @@ export default function Home() {
                                 style={reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
                               >
                                 <span className="block">{tt.name}</span>
-                                <span className="block text-[10px] opacity-70 mt-0.5">
-                                  {tt.price ? `€${tt.price.toFixed(2).replace(/\.00$/, "")}` : t(lang, "events.free")}
-                                </span>
                               </button>
                             ))}
                           </div>

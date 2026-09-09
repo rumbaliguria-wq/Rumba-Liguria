@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
-import { decodeTicketTypes } from "@/lib/ticketTypes";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 
 export async function GET() {
@@ -33,14 +32,6 @@ export async function POST(req: NextRequest) {
   const bookingError = await validateBookingRules(supabase, event, guest_count, event_id);
   if (bookingError) {
     return NextResponse.json({ error: bookingError }, { status: 400 });
-  }
-
-  // Los tipos de entrada con precio deben pagarse en /api/checkout/create-session,
-  // no crearse gratis acá — evita que alguien salte el pago llamando este endpoint directo.
-  const { types: ticketTypes } = decodeTicketTypes((event as { details?: string } | null)?.details || "");
-  const selectedType = ticket_type ? ticketTypes.find(t => t.name === ticket_type) : null;
-  if (selectedType?.price) {
-    return NextResponse.json({ error: "Questo tipo di biglietto richiede il pagamento online." }, { status: 400 });
   }
 
   const origin = req.headers.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || "https://rumbaliguria.com";
