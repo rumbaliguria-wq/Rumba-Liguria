@@ -39,6 +39,9 @@ yarn-error.log*
 # orchids builder metadata
 .orchids/
 
+# impeccable design-review tool cache
+.impeccable/
+
 # vercel
 .vercel
 

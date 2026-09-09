@@ -79,6 +79,215 @@
   --sidebar-ring: #3b82f6;
 }
 
+/* ─── Light theme override ───
+   Dark stays the default (no class needed, so there's zero flash for the
+   common case). Toggling to light adds this class via next-themes. Only
+   the base "chrome" tokens are redefined here — buttons/badges that use an
+   explicit color on purpose (e.g. white text on a colored pill) keep it in
+   both themes, since that's about the element, not the page background. */
+.light {
+  --background: #f6f6f9;
+  --foreground: #0f0f16;
+  --card: #ffffff;
+  --card-foreground: #0f0f16;
+  --popover: #ffffff;
+  --popover-foreground: #0f0f16;
+  --secondary: #eceef3;
+  --secondary-foreground: #0f0f16;
+  --muted: #eceef3;
+  --muted-foreground: #6b6b78;
+  --accent: #eceef3;
+  --accent-foreground: #0f0f16;
+  --border: rgba(15, 15, 22, 0.1);
+  --input: rgba(15, 15, 22, 0.08);
+}
+
+/* Public site light theme. The event UI uses fixed night-club surfaces in a
+   few places, so these scoped overrides preserve a readable light option. */
+.light .theme-page { background: #f6f7fb; color: #111827; }
+.light .theme-page .theme-header { background: rgba(255, 255, 255, 0.88); box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08); }
+.light .theme-page .theme-header .text-white,
+.light .theme-page .theme-header .hover\:text-white:hover { color: #111827; }
+.light .theme-page [class*="bg-[#0a0a12]"],
+.light .theme-page [class*="bg-[#0d0d1a]"],
+.light .theme-page [class*="bg-[#090914]"] { background-color: #ffffff !important; }
+.light .theme-page [class~="text-gray-300"] { color: #374151; }
+.light .theme-page [class~="text-gray-400"] { color: #4b5563; }
+.light .theme-page [class~="text-gray-500"],
+.light .theme-page [class~="text-gray-600"] { color: #6b7280; }
+.light .theme-page section:not(.theme-hero) h2,
+.light .theme-page section:not(.theme-hero) h3 { color: #111827; }
+.light .theme-page .theme-hero .text-gray-300 { color: #e5e7eb; }
+.light ::-webkit-scrollbar-track { background: #eef0f5; }
+
+/* Sections that deliberately use a translucent dark glass background need a
+   real light counterpart; otherwise they look like a grey veil in light mode. */
+.light .theme-page .glass-panel {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+}
+.light .theme-page [class~="text-gray-200"] { color: #374151; }
+.light .theme-page footer .text-white { color: #111827; }
+.light .theme-page footer a:not([class*="text-"]) { color: #4b5563; }
+.light .theme-page button[class~="text-white"]:not([style]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-red"]):not([class*="bg-yellow"]) {
+  color: #111827;
+}
+
+/* Shared surfaces and form controls: these are deliberately scoped to the
+   app shells, so media overlays and coloured CTA buttons retain white text. */
+.light :is(.theme-page, .theme-admin) [class~="bg-white/3"],
+.light :is(.theme-page, .theme-admin) [class~="bg-white/5"],
+.light :is(.theme-page, .theme-admin) [class~="bg-white/8"],
+.light :is(.theme-page, .theme-admin) [class~="bg-white/10"] {
+  background-color: rgba(15, 23, 42, 0.045);
+}
+.light :is(.theme-page, .theme-admin) [class*="bg-[#0a0a12]"],
+.light :is(.theme-page, .theme-admin) [class*="bg-[#0d0d1a]"],
+.light :is(.theme-page, .theme-admin) [class*="bg-[#0f0f1a]"],
+.light :is(.theme-page, .theme-admin) [class*="bg-[#090914]"] {
+  background-color: #ffffff !important;
+}
+.light :is(.theme-page, .theme-admin) input:not([type="checkbox"]):not([type="radio"]),
+.light :is(.theme-page, .theme-admin) textarea,
+.light :is(.theme-page, .theme-admin) select {
+  color: #111827 !important;
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.16) !important;
+  color-scheme: light;
+}
+.light :is(.theme-page, .theme-admin) input::placeholder,
+.light :is(.theme-page, .theme-admin) textarea::placeholder { color: #9ca3af !important; }
+.light :is(.theme-page, .theme-admin) :is([class*="bg-[#"], [class~="bg-white/3"], [class~="bg-white/5"]) :is(h1, h2, h3, h4, p, label)[class~="text-white"] {
+  color: #111827;
+}
+.light .theme-admin { background: #f6f7fb; color: #111827; }
+.light .theme-admin [class~="text-gray-200"] { color: #374151; }
+.light .theme-admin [class~="text-gray-300"] { color: #4b5563; }
+.light .theme-admin [class~="text-gray-400"] { color: #4b5563; }
+.light .theme-admin [class~="text-gray-500"],
+.light .theme-admin [class~="text-gray-600"] { color: #6b7280; }
+
+/* Administrative workspace: calmer, more structured surfaces than the
+   public nightlife experience. These classes are intentionally scoped so
+   event cards and customer-facing pages retain their expressive styling. */
+.theme-admin { background: var(--background); }
+.admin-header {
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+}
+.admin-sidebar {
+  padding: .375rem;
+  border: 1px solid var(--border);
+  border-radius: .875rem;
+  background: var(--card);
+  box-shadow: none;
+}
+.admin-sidebar > button { border-radius: .625rem; }
+.admin-eyebrow {
+  margin-bottom: .4rem;
+  color: var(--muted-foreground);
+  font-size: .6875rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.admin-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  width: fit-content;
+  padding: .375rem .625rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: .6875rem;
+  font-weight: 500;
+}
+.admin-status-dot {
+  width: .4rem;
+  height: .4rem;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.admin-kpi-card, .admin-panel {
+  border: 1px solid var(--border);
+  border-radius: .875rem;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(15,23,42,.04);
+}
+.admin-kpi-card {
+  min-height: 112px;
+  transition: border-color .15s ease;
+}
+.admin-kpi-card:hover { border-color: color-mix(in srgb, var(--muted-foreground) 35%, var(--border)); }
+.admin-kpi-icon {
+  border: none;
+  border-radius: .5rem;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  color: var(--muted-foreground);
+  box-shadow: none;
+}
+.admin-panel { background: var(--card); }
+.admin-panel-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: 1rem;
+  color: var(--foreground);
+  font-size: .8125rem;
+  font-weight: 600;
+}
+.admin-panel-title > svg { color: var(--muted-foreground); }
+.admin-dashboard .recharts-tooltip-wrapper { outline: none; }
+.admin-quick-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  width: fit-content;
+  padding: .3125rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  background: var(--card);
+  box-shadow: none;
+}
+.admin-icon-action {
+  display: grid;
+  place-items: center;
+  width: 2.375rem;
+  height: 2.375rem;
+  border: none;
+  border-radius: .5rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.admin-icon-action:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+.admin-icon-action:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.admin-quick-action {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  min-height: 68px;
+  padding: .75rem;
+  border: 1px solid var(--border);
+  border-radius: .9rem;
+  background: var(--card);
+  text-align: left;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.admin-quick-action:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--primary) 46%, var(--border)); box-shadow: 0 12px 22px rgba(15,23,42,.08); }
+.admin-quick-action strong, .admin-quick-action small { display: block; }
+.admin-quick-action strong { color: var(--foreground); font-size: .78rem; font-weight: 700; }
+.admin-quick-action small { margin-top: .13rem; color: var(--muted-foreground); font-size: .68rem; }
+.admin-quick-icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: .7rem; flex-shrink: 0; }
+.light .admin-sidebar { background: var(--card); }
+.light .admin-kpi-card, .light .admin-panel { box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -86,6 +295,65 @@
   body {
     @apply bg-background text-foreground;
   }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ─── Night-club design system ───
+   Ambient accent hues used sparingly for depth/atmosphere behind hero and
+   section backgrounds. The site's single configurable "accent" color (set
+   in admin) stays the primary interactive/brand color everywhere else —
+   these are only for background glow variety, not buttons or text. */
+:root {
+  --neon-violet: #8b5cf6;
+  --neon-magenta: #ec4899;
+  --neon-blue: #3b82f6;
+}
+
+.text-gradient-night {
+  background: linear-gradient(90deg, var(--neon-violet), var(--neon-magenta) 55%, var(--neon-blue));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glow-violet {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.1);
+}
+
+.glow-magenta {
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.3), 0 0 60px rgba(236, 72, 153, 0.1);
+}
+
+/* Subtle diagonal shine sweep for premium CTA buttons on hover */
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.25) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 0.6s ease;
+}
+.btn-shine:hover::after {
+  transform: translateX(120%);
+}
+
+/* Reusable section heading style — bold, tight tracking, premium feel */
+.section-title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Soft glass panel for cards that need to sit over busy backgrounds */
+.glass-panel {
+  background: rgba(10, 10, 15, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 /* Glow effects */

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+import Image from "next/image";
 import {
   Plus,
   Search,
@@ -46,6 +47,7 @@ import {
 interface Card {
   id: string;
   code: string;
+  card_number: number | null;
   full_name: string;
   country: string | null;
   city: string | null;
@@ -103,6 +105,11 @@ const EMPTY_FORM = {
   card_color: DEFAULT_CARD_COLOR,
 };
 
+// Selección fija para check-ins que no pertenecen a ninguno de tus propios
+// eventos (p. ej. trabajando como colaborador en otra discoteca) — el
+// backend la guarda con event_id = null, como un "evento" genérico propio.
+const PRIVATE_EVENT = "__private__";
+
 export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScannerTrigger?: number }) {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,7 +133,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   // Scanner state
   const [showScanner, setShowScanner] = useState(false);
   const [scanEventId, setScanEventId] = useState("");
-  const [scanResult, setScanResult] = useState<{ card: Card; visit_count: number; logged: boolean; scan: { scanned_at: string; events?: { title: string } | null } } | null>(null);
+  const [scanResult, setScanResult] = useState<{ card: Card; visit_count: number; logged: boolean; scan: { scanned_at: string; event_id: string | null; events?: { title: string } | null } } | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -375,7 +382,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       // Name sits below the photo's halo (photoR + 8px ring), never overlapping it —
       // otherwise dark clothing/hair in the photo can swallow the (near-black) name text.
       const nameY = splitY + photoR + 8 + 55;
-      const pillY = nameY + 55, pillH = 56;
+      const pillY = nameY + 55, pillH = card.card_number != null ? 78 : 56;
       const rowsStartY = pillY + pillH + 50;
       const rowGap = 68;
       const qrSize = 260;
@@ -465,14 +472,14 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       ctx.font = "56px 'Segoe Script', 'Brush Script MT', cursive";
       wrapCenteredText(ctx, card.full_name, W / 2, nameY, W - 60, 60);
 
-      // Black pill badge with brand
-      ctx.font = "700 12px Arial";
+      // Black pill badge with brand (+ the big card number, when there is one)
+      const cardNumberText = card.card_number != null ? `Nº${String(card.card_number).padStart(4, "0")}` : null;
       const line1 = t.cardPill;
-      ctx.font = "700 20px Arial";
       const line2 = "Rumba Liguria";
-      const line2Width = ctx.measureText(line2).width;
       const line1Width = (() => { ctx.font = "700 12px Arial"; return ctx.measureText(line1).width; })();
-      const textBlockWidth = Math.max(line1Width, line2Width);
+      const line2Width = (() => { ctx.font = cardNumberText ? "700 15px Arial" : "700 20px Arial"; return ctx.measureText(line2).width; })();
+      const numberWidth = cardNumberText ? (() => { ctx.font = "800 27px Arial"; return ctx.measureText(cardNumberText).width; })() : 0;
+      const textBlockWidth = Math.max(line1Width, line2Width, numberWidth);
       const iconR = 16;
       const pillW = iconR * 2 + 20 + textBlockWidth + 44;
       const pillX = W / 2 - pillW / 2;
@@ -510,11 +517,22 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       ctx.fillStyle = "#d1d1d1";
       ctx.font = "700 11px Arial";
       ctx.letterSpacing = "1px";
-      ctx.fillText(line1, textX, pillY + 23);
+      ctx.fillText(line1, textX, pillY + 18);
       ctx.letterSpacing = "0px";
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "700 20px Arial";
-      ctx.fillText(line2, textX, pillY + 44);
+      if (cardNumberText) {
+        // The number is the whole point of this badge for a physical card
+        // handoff, so it gets the biggest, boldest text in the pill.
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "800 27px Arial";
+        ctx.fillText(cardNumberText, textX, pillY + 46);
+        ctx.fillStyle = "#d1d1d1";
+        ctx.font = "700 15px Arial";
+        ctx.fillText(line2, textX, pillY + 68);
+      } else {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "700 20px Arial";
+        ctx.fillText(line2, textX, pillY + 44);
+      }
       ctx.textAlign = "center";
 
       // Info rows: icon badge + label + value
@@ -598,12 +616,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   const handleManualCheckin = async (card: Card) => {
     if (!manualEventId) return;
+    const eventId = manualEventId === PRIVATE_EVENT ? null : manualEventId;
     setManualCheckinLoadingId(card.id);
     try {
       const res = await fetch("/api/cards/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: card.code, event_id: manualEventId }),
+        body: JSON.stringify({ code: card.code, event_id: eventId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -614,7 +633,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       setCards((prev) =>
         prev.map((c) =>
           c.id === card.id
-            ? { ...c, visit_count: data.visit_count, event_ids: [...new Set([...(c.event_ids || []), manualEventId])] }
+            ? { ...c, visit_count: data.visit_count, event_ids: [...new Set([...(c.event_ids || []), eventId])] }
             : c
         )
       );
@@ -665,7 +684,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       const res = await fetch("/api/cards/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: raw.trim(), event_id: scanEventId }),
+        body: JSON.stringify({ code: raw.trim(), event_id: scanEventId === PRIVATE_EVENT ? null : scanEventId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -906,7 +925,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredCards.map((card) => {
             const typeInfo = decodeIdType(card.id_type);
-            const alreadyIn = manualEventId ? (card.event_ids || []).includes(manualEventId) : false;
+            const alreadyIn = manualEventId ? (card.event_ids || []).includes(manualEventId === PRIVATE_EVENT ? null : manualEventId) : false;
             return (
               <div
                 key={card.id}
@@ -920,15 +939,19 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               >
                 <div className="flex items-start gap-3">
                   {card.photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={card.photo_url} alt={card.full_name} className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-white/10" />
+                    <Image src={card.photo_url} alt={card.full_name} width={48} height={48} className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-white/10" />
                   ) : (
                     <div className="w-12 h-12 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
                       <User size={20} className="text-blue-400" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-white truncate">{card.full_name}</p>
+                    <p className="font-semibold text-white truncate">
+                      {card.full_name}
+                      {card.card_number != null && (
+                        <span className="ml-1.5 font-mono text-xs font-normal text-gray-500">#{String(card.card_number).padStart(4, "0")}</span>
+                      )}
+                    </p>
                     {typeInfo.label !== "—" && (
                       <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-500/15 text-blue-300 border border-blue-500/25">
                         {typeInfo.label}
@@ -985,8 +1008,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
             {/* Photo */}
             <div className="flex items-center gap-3">
               {formData.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={formData.photo_url} alt="" className="w-16 h-16 rounded-full object-cover border border-white/10" />
+                <Image src={formData.photo_url} alt="" width={64} height={64} className="w-16 h-16 rounded-full object-cover border border-white/10" />
               ) : (
                 <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                   <User size={24} className="text-gray-500" />
@@ -1199,7 +1221,12 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0a0a12] border border-blue-500/20 rounded-2xl p-5 sm:p-6 space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold truncate pr-2">{detailCard.full_name}</h2>
+              <h2 className="text-lg font-bold truncate pr-2">
+                {detailCard.full_name}
+                {detailCard.card_number != null && (
+                  <span className="ml-2 font-mono text-sm font-normal text-gray-500">#{String(detailCard.card_number).padStart(4, "0")}</span>
+                )}
+              </h2>
               <button onClick={() => setDetailCard(null)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 flex-shrink-0">
                 <X size={18} />
               </button>
@@ -1207,8 +1234,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
             <div className="flex flex-col items-center gap-3 py-2">
               {detailCard.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={detailCard.photo_url} alt="" className="w-20 h-20 rounded-full object-cover border border-white/10" />
+                <Image src={detailCard.photo_url} alt="" width={80} height={80} className="w-20 h-20 rounded-full object-cover border border-white/10" />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                   <User size={30} className="text-blue-400" />
@@ -1262,7 +1288,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                     <span className="text-gray-300">
                       {new Date(s.scanned_at).toLocaleString("it-IT", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    {s.events?.title && <span className="text-blue-400 truncate ml-2">{s.events.title}</span>}
+                    <span className="text-blue-400 truncate ml-2">{s.events?.title || (s.event_id === null ? "Evento Privato" : "")}</span>
                   </div>
                 ))}
               </div>
@@ -1372,6 +1398,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-blue-500/40 text-sm"
               >
                 <option value="" className="bg-[#0a0a12] text-white">Seleziona un evento...</option>
+                <option value={PRIVATE_EVENT} className="bg-[#0a0a12] text-white">Evento Privato</option>
                 {events.map((ev) => (
                   <option key={ev.id} value={ev.id} className="bg-[#0a0a12] text-white">{ev.title}</option>
                 ))}
@@ -1399,13 +1426,12 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                     <p className="text-center text-gray-500 text-sm py-6">Nessuna tessera trovata</p>
                   ) : (
                     manualFilteredCards.map((card) => {
-                      const alreadyIn = (card.event_ids || []).includes(manualEventId);
+                      const alreadyIn = (card.event_ids || []).includes(manualEventId === PRIVATE_EVENT ? null : manualEventId);
                       return (
                         <div key={card.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10">
                           <div className="flex items-center gap-2.5 min-w-0">
                             {card.photo_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={card.photo_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-white/10" />
+                              <Image src={card.photo_url} alt="" width={36} height={36} className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-white/10" />
                             ) : (
                               <div className="w-9 h-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
                                 <User size={16} className="text-blue-400" />
@@ -1461,6 +1487,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
             >
               <option value="" className="bg-[#0a0a12] text-white">Seleziona un evento...</option>
+              <option value={PRIVATE_EVENT} className="bg-[#0a0a12] text-white">Evento Privato</option>
               {events.map((ev) => (
                 <option key={ev.id} value={ev.id} className="bg-[#0a0a12] text-white">{ev.title}</option>
               ))}
@@ -1473,11 +1500,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 <div className="w-16 h-16 mx-auto rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
                   <Calendar size={28} className="text-blue-400" />
                 </div>
-                <p className="text-gray-300 font-medium">
-                  {events.length === 0
-                    ? "Crea prima un evento nella scheda Eventi per poter registrare gli ingressi."
-                    : "Seleziona un evento qui sopra per iniziare a scansionare."}
-                </p>
+                <p className="text-gray-300 font-medium">Seleziona un evento qui sopra per iniziare a scansionare.</p>
               </div>
             ) : (
               <>
@@ -1518,8 +1541,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                         <CheckCircle size={38} className={scanResult.logged ? "text-green-400" : "text-yellow-400"} />
                       </div>
                       {scanResult.card.photo_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={scanResult.card.photo_url} alt="" className="w-16 h-16 rounded-full object-cover mx-auto border border-white/20" />
+                        <Image src={scanResult.card.photo_url} alt="" width={64} height={64} className="w-16 h-16 rounded-full object-cover mx-auto border border-white/20" />
                       ) : null}
                       <h1 className="text-2xl font-bold text-white">{scanResult.card.full_name}</h1>
                       {decodeIdType(scanResult.card.id_type).label !== "—" && (
@@ -1530,8 +1552,8 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                       <p className={`text-sm font-medium ${scanResult.logged ? "text-green-400" : "text-yellow-400"}`}>
                         {scanResult.logged ? "Ingresso registrato!" : "Già entrato/a pochi secondi fa"}
                       </p>
-                      {scanResult.scan?.events?.title && (
-                        <p className="text-white font-semibold text-sm">{scanResult.scan.events.title}</p>
+                      {scanResult.scan && (
+                        <p className="text-white font-semibold text-sm">{scanResult.scan.events?.title || (scanResult.scan.event_id === null ? "Evento Privato" : "")}</p>
                       )}
                       {scanResult.scan?.scanned_at && (
                         <p className="text-gray-400 text-xs">

@@ -1,0 +1,156 @@
+import { SupabaseClient } from "@supabase/supabase-js";
+import crypto from "crypto";
+import { sendEmail, qrTicketHtml } from "@/lib/email";
+import { decodePhoneField } from "@/lib/userPhone";
+import { getEventExpiryUTC, getSaleCloseUTC } from "@/lib/eventExpiry";
+import { decodeSaleConfig } from "@/lib/saleConfig";
+
+// Compartida entre la reserva gratis (api/reservations) y la confirmación de
+// pago de Stripe (api/checkout/webhook) — así ambos caminos generan los
+// códigos/QR y mandan el mismo email de la misma forma.
+
+function generateCode(): string {
+  return crypto.randomBytes(6).toString("hex").toUpperCase();
+}
+
+type EventForValidation = {
+  title?: string;
+  max_tickets?: number | null;
+  max_per_person?: number | null;
+  event_date_iso?: string | null;
+  details?: string | null;
+} | null;
+
+// Mismas reglas para el camino gratis y el de pago: fechas de venta, evento
+// vencido y cupo máximo. Devuelve un mensaje de error (string) o null si está
+// todo bien.
+export async function validateBookingRules(
+  supabase: SupabaseClient,
+  event: EventForValidation,
+  guest_count: number,
+  event_id: string
+): Promise<string | null> {
+  const eventDateIso = event?.event_date_iso;
+
+  if (eventDateIso && Date.now() > getEventExpiryUTC(eventDateIso)) {
+    return "Le prenotazioni per questo evento sono chiuse.";
+  }
+  if (eventDateIso && Date.now() >= getSaleCloseUTC(eventDateIso)) {
+    return "Le prenotazioni per questo evento sono chiuse.";
+  }
+
+  const { sale_start, sale_end } = decodeSaleConfig(event?.details || "");
+  if (sale_start && Date.now() < new Date(sale_start).getTime()) {
+    return "Le prenotazioni non sono ancora aperte.";
+  }
+  if (sale_end && Date.now() > new Date(sale_end).getTime()) {
+    return "Le prenotazioni per questo evento sono chiuse.";
+  }
+
+  if (event?.max_per_person && guest_count > event.max_per_person) {
+    return `Puoi prenotare al massimo ${event.max_per_person} ${event.max_per_person === 1 ? "persona" : "persone"} per questa prenotazione.`;
+  }
+
+  if (event?.max_tickets) {
+    const { data: existing } = await supabase
+      .from("reservations")
+      .select("guest_count")
+      .eq("event_id", event_id)
+      .in("status", ["active", "used"]);
+    const sold = (existing || []).reduce((sum: number, r: { guest_count: number }) => sum + r.guest_count, 0);
+    if (sold + guest_count > event.max_tickets) {
+      const remaining = event.max_tickets - sold;
+      if (remaining <= 0) {
+        return "SOLD OUT — I biglietti sono esauriti. Scrivici su WhatsApp per info sulla lista d'attesa.";
+      }
+      return `Rimangono solo ${remaining} ${remaining === 1 ? "posto" : "posti"} disponibili.`;
+    }
+  }
+
+  return null;
+}
+
+export async function createReservationsAndNotify({
+  supabase,
+  event_id,
+  eventTitle,
+  user_email,
+  userPhone,
+  guest_count,
+  ticket_type,
+  referral,
+  origin,
+  stripe_session_id,
+}: {
+  supabase: SupabaseClient;
+  event_id: string;
+  eventTitle?: string;
+  user_email: string;
+  userPhone?: string | null;
+  guest_count: number;
+  ticket_type?: string;
+  referral?: string;
+  origin: string;
+  stripe_session_id?: string;
+}) {
+  const ticketsToCreate = [];
+  const codes: string[] = [];
+
+  for (let i = 0; i < guest_count; i++) {
+    let code = generateCode();
+    let attempts = 0;
+    while (attempts < 5) {
+      const { data: existing } = await supabase
+        .from("reservations")
+        .select("id")
+        .eq("code", code)
+        .single();
+      if (!existing) break;
+      code = generateCode();
+      attempts++;
+    }
+
+    codes.push(code);
+    const decoded = decodePhoneField(userPhone ?? null);
+    const baseName = decoded.name
+      || user_email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+    let displayName = baseName;
+    if (ticket_type) displayName += ` [tipo:${ticket_type}]`;
+    if (referral) displayName += ` [ref:${referral}]`;
+    ticketsToCreate.push({
+      code,
+      event_id,
+      user_email,
+      user_name: displayName,
+      guest_count: 1,
+      status: "active",
+      ...(stripe_session_id ? { stripe_session_id } : {}),
+    });
+  }
+
+  const { data, error } = await supabase
+    .from("reservations")
+    .insert(ticketsToCreate)
+    .select();
+
+  if (error) throw error;
+
+  const tickets = codes.map(code => {
+    const verifyUrl = `${origin}/verify/${code}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(verifyUrl)}`;
+    return { code, verifyUrl, qrImageUrl };
+  });
+
+  sendEmail({
+    to: user_email,
+    subject: `🎟️ La tua prenotazione per ${eventTitle || "l'evento"}`,
+    html: qrTicketHtml({
+      eventTitle: eventTitle || "Evento Rumba Liguria",
+      userEmail: user_email,
+      guestCount: guest_count,
+      tickets,
+    }),
+  }).catch(() => {/* ignore email errors */});
+
+  return data;
+}

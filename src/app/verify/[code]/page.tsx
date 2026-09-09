@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { CheckCircle, XCircle, Users, Calendar, Ticket, Ban, Clock, PartyPopper } from "lucide-react";
 
@@ -184,9 +185,12 @@ export default function VerifyPage() {
         }`}>
           {reservation.events.flyer_url && (
             <div className="relative w-full rounded-xl overflow-hidden bg-black flex justify-center">
-              <img
+              <Image
                 src={reservation.events.flyer_url}
                 alt={reservation.events.title}
+                width={0}
+                height={0}
+                sizes="(max-width:640px) 100vw, 480px"
                 className="w-full h-auto object-contain max-h-[60vh]"
               />
             </div>

@@ -5,10 +5,13 @@ export async function POST(req: Request) {
   const supabase = getServiceClient();
   const body = await req.json().catch(() => ({}));
   const code = (body.code || "").trim();
-  const eventId = body.event_id || null;
+  // event_id puede llegar como null a propósito: es un check-in "Evento
+  // Privato", fuera de los eventos propios (p. ej. colaborando en otra
+  // discoteca) — se guarda igual, solo que sin evento asociado.
+  const eventId = body.event_id ?? null;
 
   if (!code) return NextResponse.json({ error: "Codice mancante" }, { status: 400 });
-  if (!eventId) return NextResponse.json({ error: "Seleziona un evento prima di scansionare" }, { status: 400 });
+  if (!("event_id" in body)) return NextResponse.json({ error: "Seleziona un evento prima di scansionare" }, { status: 400 });
 
   const { data: card, error } = await supabase
     .from("client_cards")
@@ -31,7 +34,16 @@ export async function POST(req: Request) {
     .order("scanned_at", { ascending: false });
 
   const scans = allScans || [];
-  const existingForEvent = scans.find((s) => s.event_id === eventId);
+
+  // "Evento Privato" no tiene fecha propia (se reutiliza para cualquier noche,
+  // en cualquier discoteca), así que un ingreso viejo no puede bloquear uno
+  // nuevo para siempre. Solo cuenta como duplicado si el último ingreso
+  // privado fue hace menos de 8 horas — suficiente para cubrir una fiesta
+  // típica sin mezclar la de anoche con la de esta tarde.
+  const PRIVATE_DUPLICATE_WINDOW_MS = 8 * 60 * 60 * 1000;
+  const existingForEvent = eventId === null
+    ? scans.find((s) => s.event_id === null && Date.now() - new Date(s.scanned_at).getTime() < PRIVATE_DUPLICATE_WINDOW_MS)
+    : scans.find((s) => s.event_id === eventId);
   const isDuplicate = !!existingForEvent;
 
   let newScan = null;

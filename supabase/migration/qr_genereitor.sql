@@ -187,3 +187,37 @@ alter table public.client_cards add column if not exists gender text;
 alter table public.client_cards add column if not exists language text not null default 'it';
 alter table public.client_cards add column if not exists card_color text not null default '#111111';
 alter table public.reservations add column if not exists vip_number integer;
+
+-- Numerazione progressiva delle tessere clienti, per farle corrispondere
+-- alle tessere fisiche già stampate.
+alter table public.client_cards add column if not exists card_number integer;
+with numbered as (
+  select id, row_number() over (order by created_at asc) as rn
+  from public.client_cards
+  where card_number is null
+)
+update public.client_cards c
+set card_number = numbered.rn
+from numbered
+where c.id = numbered.id;
+create unique index if not exists client_cards_card_number_idx on public.client_cards(card_number);
+
+create table if not exists public.hero_photos (
+  id uuid primary key default gen_random_uuid(),
+  url text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.hero_photos enable row level security;
+
+-- Seed with the 5 LOKERA photos already uploaded to the general gallery,
+-- so the Hero keeps showing them right away instead of going blank.
+insert into public.hero_photos (url)
+select url from public.gallery
+where url in (
+  'https://aupxrrqtrdpgshhhbijw.supabase.co/storage/v1/object/public/flyers/gallery/1788121553376-WhatsApp_Image_2026-08-30_at_3.17.23_PM.jpeg',
+  'https://aupxrrqtrdpgshhhbijw.supabase.co/storage/v1/object/public/flyers/gallery/1788121552297-WhatsApp_Image_2026-08-30_at_3.17.24_PM.jpeg',
+  'https://aupxrrqtrdpgshhhbijw.supabase.co/storage/v1/object/public/flyers/gallery/1788121551240-WhatsApp_Image_2026-08-30_at_3.17.26_PM.jpeg',
+  'https://aupxrrqtrdpgshhhbijw.supabase.co/storage/v1/object/public/flyers/gallery/1788121549974-WhatsApp_Image_2026-08-30_at_3.17.28_PM.jpeg',
+  'https://aupxrrqtrdpgshhhbijw.supabase.co/storage/v1/object/public/flyers/gallery/1788121548055-WhatsApp_Image_2026-08-30_at_3.17.28_PM_(1).jpeg'
+)
+on conflict do nothing;

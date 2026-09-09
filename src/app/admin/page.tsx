@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
     Lock,
@@ -16,7 +16,6 @@ import {
     LogOut,
     Eye,
     EyeOff,
-    Image as ImageIcon,
     MessageCircle,
     Settings,
     Ticket,
@@ -45,85 +44,12 @@ import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
 import CardsPanel from "@/components/CardsPanel";
-
-interface Event {
-  id: string;
-  title: string;
-  details: string;
-  price: string;
-  flyer_url: string;
-  flyer_ratio: string;
-  maps_url?: string;
-  is_popular?: boolean;
-  organizer?: string;
-    archived?: boolean;
-    publish_at?: string;
-    event_date?: string;
-    event_date_iso?: string;
-    event_time?: string;
-    event_time_end?: string;
-  max_tickets?: number;
-  max_per_person?: number;
-  dress_code?: string;
-  min_age?: number;
-  sale_start?: string;
-  sale_end?: string;
-  archive_at?: string;
-  ticket_types?: { name: string; color: string }[];
-  created_at: string;
-  reservation_total?: number;
-  reservation_used?: number;
-}
-
-interface User {
-  id: string;
-  email: string;
-  phone: string | null;
-  created_at: string;
-  name?: string | null;
-  userType?: string | null;
-  source?: "registered" | "reservation";
-}
-
-  interface Reservation {
-    id: string;
-    code: string;
-    event_id: string;
-    user_email: string;
-    user_name: string;
-    guest_count: number;
-    status: string;
-    created_at: string;
-    events: { title: string; event_date_iso?: string; archived?: boolean } | null;
-  }
-
-interface GalleryItem {
-  id: string;
-  url: string;
-  type: "image" | "video";
-  created_at: string;
-}
-
-interface RentalItem {
-  id: string;
-  name: string;
-  description: string;
-  price: string;
-  duration: string;
-  photos: string[];
-  contact_phone: string;
-  contact_email: string;
-  available: boolean;
-  archived?: boolean;
-  created_at: string;
-}
-
-interface RentalConfig {
-  items: RentalItem[];
-  section_name: string;
-  button_name: string;
-  enabled: boolean;
-}
+import ThemeToggle from "@/components/ThemeToggle";
+import { useTheme } from "next-themes";
+import OverviewTab from "./_components/OverviewTab";
+import type {
+  Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
+} from "./types";
 
 // Disegna il QR VIP con il suo numero fisso al centro — usa errorCorrectionLevel
 // "H" (tollera fino al ~30% di area coperta) così il badge del numero non
@@ -153,15 +79,29 @@ async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanv
 }
 
 export default function AdminPage() {
+  const router = useRouter();
+  // Called before the login-screen early return, since hooks can't be conditional.
+  const { resolvedTheme } = useTheme();
+  const isLightTheme = resolvedTheme === "light";
+
   const [authenticated, setAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [loginStep, setLoginStep] = useState<"credentials" | "channel" | "code">("credentials");
+  const [twoFAChannels, setTwoFAChannels] = useState<string[]>([]);
+  const [twoFAMasked, setTwoFAMasked] = useState<{ email: string | null; phone: string | null }>({ email: null, phone: null });
+  const [twoFAChallengeId, setTwoFAChallengeId] = useState("");
+  const [twoFACode, setTwoFACode] = useState("");
+  const [twoFASending, setTwoFASending] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
-  const [activeTab, setActiveTab] = useState<"events" | "users" | "reservations" | "gallery" | "rentals" | "cards" | "settings">("events");
+  const [activeTab, setActiveTab] = useState<"overview" | "events" | "users" | "reservations" | "gallery" | "rentals" | "cards" | "settings">("overview");
+  const [vipCodesCount, setVipCodesCount] = useState<number | null>(null);
+  const [clientCardsCount, setClientCardsCount] = useState<number | null>(null);
   const [rentalConfig, setRentalConfig] = useState<RentalConfig>({ items: [], section_name: "Noleggio Attrezzatura", button_name: "Noleggio", enabled: true });
   const [rentalForm, setRentalForm] = useState<Partial<RentalItem> & { photosUploading?: boolean }>({ name: "", description: "", price: "", duration: "", photos: [], contact_phone: "", contact_email: "", available: true });
   const [editingRental, setEditingRental] = useState<RentalItem | null>(null);
@@ -173,6 +113,13 @@ export default function AdminPage() {
   const [credNewUser, setCredNewUser] = useState("");
   const [credNewPass, setCredNewPass] = useState("");
   const [credSaving, setCredSaving] = useState(false);
+  const [secEmail, setSecEmail] = useState("");
+  const [secPhone, setSecPhone] = useState("");
+  const [secApiKey, setSecApiKey] = useState("");
+  const [secApiKeySet, setSecApiKeySet] = useState(false);
+  const [sec2FA, setSec2FA] = useState(true);
+  const [secCurrentPass, setSecCurrentPass] = useState("");
+  const [secSaving, setSecSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [formData, setFormData] = useState({
@@ -205,6 +152,8 @@ export default function AdminPage() {
   const [showCredCurrentPass, setShowCredCurrentPass] = useState(false);
   const [showCredNewPass, setShowCredNewPass] = useState(false);
   const [galleryUploading, setGalleryUploading] = useState(false);
+  const [heroPhotos, setHeroPhotos] = useState<HeroPhoto[]>([]);
+  const [heroPhotoUploading, setHeroPhotoUploading] = useState(false);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const [accentColor, setAccentColor] = useState("#3b82f6");
@@ -216,7 +165,7 @@ export default function AdminPage() {
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeLoading, setPlaceLoading] = useState(false);
-  const [formTicketTypes, setFormTicketTypes] = useState<{name: string; color: string}[]>([]);
+  const [formTicketTypes, setFormTicketTypes] = useState<{name: string; color: string; price?: number}[]>([]);
   const [manualLinkMode, setManualLinkMode] = useState(false);
   const [showVipSection, setShowVipSection] = useState(false);
   const [vipEventId, setVipEventId] = useState("");
@@ -365,6 +314,15 @@ export default function AdminPage() {
     lastScannedRef.current = null;
     if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+
+    // La cámara sólo funciona en un contexto seguro: https:// o http://localhost.
+    // Si entras por la IP de red (http://192.168.x.x) el navegador la bloquea.
+    if (typeof window !== "undefined" && (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)) {
+      setScanError(
+        `La fotocamera richiede una connessione sicura. Apri il pannello da "localhost" oppure avvia il server in HTTPS (npm run dev:https).`
+      );
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -517,6 +475,12 @@ export default function AdminPage() {
     if (Array.isArray(data)) setGallery(data);
   }, []);
 
+  const fetchHeroPhotos = useCallback(async () => {
+    const res = await fetch("/api/hero-photos");
+    const data = await res.json();
+    if (Array.isArray(data)) setHeroPhotos(data);
+  }, []);
+
   const fetchRentals = useCallback(async () => {
     try {
       const res = await fetch("/api/rentals");
@@ -525,23 +489,117 @@ export default function AdminPage() {
     } catch {}
   }, []);
 
+  const fetchSecurity = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/security");
+      const data = await res.json();
+      if (data && !data.error) {
+        setSecEmail(data.admin_email || "");
+        setSecPhone(data.admin_phone || "");
+        setSecApiKeySet(!!data.whatsapp_apikey_set);
+        setSec2FA(data.two_factor_enabled !== false);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    const saved = localStorage.getItem("rumba_admin");
-    if (saved === "true") setAuthenticated(true);
+    // La sesión vive en una cookie httpOnly firmada por el servidor. Aquí sólo
+    // preguntamos si sigue siendo válida para decidir qué pantalla mostrar.
+    try {
+      localStorage.removeItem("rumba_admin"); // limpia sesiones persistentes antiguas
+      const prefill = sessionStorage.getItem("rumba_admin_user");
+      if (prefill) {
+        setUsername(prefill);
+        sessionStorage.removeItem("rumba_admin_user");
+      }
+    } catch {}
+    fetch("/api/admin/session")
+      .then((r) => r.json())
+      .then((d) => setAuthenticated(!!d.authenticated))
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  // Fetched unconditionally (not just once logged in) so the login screen
+  // itself picks up the real brand color instead of the default blue.
+  useEffect(() => {
+    fetch("/api/admin/color").then(r => r.json()).then(d => {
+      if (d.accent_color) setAccentColor(d.accent_color);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (authenticated) {
+      // Solo lo que necesitan la Panoramica y el marco. Los datos de cada
+      // pestaña (hero, sicurezza) se cargan al abrirla — ver los tab onClick.
       fetchEvents();
       fetchUsers();
       fetchReservations();
       fetchGallery();
       fetchRentals();
-      fetch("/api/admin/color").then(r => r.json()).then(d => {
-        if (d.accent_color) setAccentColor(d.accent_color);
-      }).catch(() => {});
+      // Lightweight counts for the "Panoramica" dashboard — reuse the same
+      // endpoints CardsPanel and the VIP generator already fetch from.
+      fetch("/api/reservations/vip").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setVipCodesCount(d.length); }).catch(() => {});
+      fetch("/api/cards").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setClientCardsCount(d.length); }).catch(() => {});
     }
   }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals]);
+
+  const finishLogin = () => {
+    // La cookie de sesión ya la ha puesto el servidor (login directo o 2FA).
+    setAuthenticated(true);
+    setLoginStep("credentials");
+    setTwoFACode("");
+    setPassword("");
+    toast.success("Benvenuto, Admin!");
+  };
+
+  const requestCode = async (channel: string) => {
+    setTwoFASending(true);
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, channel }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.challengeId) {
+        setTwoFAChallengeId(data.challengeId);
+        setTwoFACode("");
+        setLoginStep("code");
+        toast.success(channel === "email" ? "Codice inviato via email" : "Codice inviato su WhatsApp");
+      } else {
+        toast.error(data.error || "Impossibile inviare il codice");
+      }
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setTwoFASending(false);
+    }
+  };
+
+  const verifyCode = async () => {
+    setTwoFASending(true);
+    try {
+      const res = await fetch("/api/admin/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId: twoFAChallengeId, code: twoFACode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        finishLogin();
+      } else {
+        toast.error(data.error || "Codice errato");
+        if (res.status === 429 || res.status === 400) {
+          setLoginStep(twoFAChannels.length > 1 ? "channel" : "credentials");
+        }
+      }
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setTwoFASending(false);
+    }
+  };
 
   const handleLogin = async () => {
     setLoginLoading(true);
@@ -551,13 +609,23 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      if (res.ok) {
-        setAuthenticated(true);
-        localStorage.setItem("rumba_admin", "true");
-        toast.success("Benvenuto, Admin!");
-      } else {
-        toast.error("Credenziali non valide");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        finishLogin();
+        return;
       }
+      if (res.ok && data.twoFactor) {
+        const channels: string[] = data.channels || [];
+        setTwoFAChannels(channels);
+        setTwoFAMasked({ email: data.maskedEmail ?? null, phone: data.maskedPhone ?? null });
+        if (channels.length === 1) {
+          await requestCode(channels[0]);
+        } else {
+          setLoginStep("channel");
+        }
+        return;
+      }
+      toast.error(data.error && data.error !== "Invalid credentials" ? data.error : "Credenziali non valide");
     } catch {
       toast.error("Errore di connessione");
     } finally {
@@ -565,9 +633,53 @@ export default function AdminPage() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setAuthenticated(false);
-    localStorage.removeItem("rumba_admin");
+    try { localStorage.removeItem("rumba_admin"); } catch {}
+    setLoginStep("credentials");
+    setUsername("");
+    setPassword("");
+    setTwoFACode("");
+    setTwoFAChallengeId("");
+    setTwoFAChannels([]);
+    // Esperamos a que se borre la cookie antes de salir, así en la página
+    // principal el chequeo de sesión ya no encuentra el acceso rápido al panel.
+    await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+    router.push("/");
+  };
+
+  const handleSecurityUpdate = async () => {
+    if (!secCurrentPass) {
+      toast.error("Inserisci la password attuale");
+      return;
+    }
+    setSecSaving(true);
+    try {
+      const res = await fetch("/api/admin/security", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: secCurrentPass,
+          admin_email: secEmail,
+          admin_phone: secPhone,
+          whatsapp_apikey: secApiKey || undefined,
+          two_factor_enabled: sec2FA,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        toast.success("Impostazioni di sicurezza salvate!");
+        setSecCurrentPass("");
+        if (secApiKey) setSecApiKeySet(true);
+        setSecApiKey("");
+      } else {
+        toast.error(data.error || "Errore");
+      }
+    } catch {
+      toast.error("Errore di connessione");
+    } finally {
+      setSecSaving(false);
+    }
   };
 
   const handleCredentialsUpdate = async () => {
@@ -1111,6 +1223,38 @@ export default function AdminPage() {
     }
   };
 
+  const handleHeroPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setHeroPhotoUploading(true);
+    let uploaded = 0;
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/hero-photos/upload", { method: "POST", body: fd });
+        if (res.ok) uploaded++;
+      }
+      if (uploaded > 0) toast.success(`${uploaded} foto aggiunte alla Hero!`);
+      fetchHeroPhotos();
+    } catch {
+      toast.error("Errore upload");
+    } finally {
+      setHeroPhotoUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleDeleteHeroPhoto = async (id: string) => {
+    const res = await fetch(`/api/hero-photos/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      toast.success("Foto rimossa dalla Hero");
+      fetchHeroPhotos();
+    } else {
+      toast.error("Errore rimozione");
+    }
+  };
+
   const handleDragStart = (id: string) => {
     dragIdRef.current = id;
   };
@@ -1243,28 +1387,46 @@ export default function AdminPage() {
       setFormTicketTypes([]);
     };
 
+  // Evita el parpadeo del login al refrescar: no renderizamos nada hasta haber
+  // leído la sesión de sessionStorage.
+  if (!authChecked) {
+    return <div className="theme-admin min-h-screen bg-background" />;
+  }
+
   if (!authenticated) {
+    const ac = accentColor;
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] sm:w-[600px] h-[400px] sm:h-[600px] bg-blue-500/5 rounded-full blur-[150px]" />
+      <div className="theme-admin min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-4 right-4 z-20">
+          <ThemeToggle />
+        </div>
+        {/* Same night-club ambience as the public site's Hero */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute -top-24 -left-16 w-[320px] sm:w-[480px] h-[320px] sm:h-[480px] rounded-full blur-[110px] sm:blur-[140px]" style={{ background: "rgba(139,92,246,0.28)" }} />
+          <div className="absolute -bottom-24 -right-16 w-[320px] sm:w-[480px] h-[320px] sm:h-[480px] rounded-full blur-[110px] sm:blur-[140px]" style={{ background: "rgba(236,72,153,0.25)" }} />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] sm:w-[600px] h-[400px] sm:h-[600px] rounded-full blur-[150px]" style={{ background: `${ac}12` }} />
         </div>
 
         <div
-          className="w-full max-w-md bg-[#0a0a12] border border-blue-500/15 rounded-2xl p-6 sm:p-8 glow-border relative z-10 animate-fade-in"
+          className="admin-login-card w-full max-w-md rounded-2xl p-6 sm:p-8 relative z-10 animate-fade-in"
+          style={{ background: isLightTheme ? "rgba(255,255,255,0.92)" : "rgba(10,10,18,0.7)", backdropFilter: "blur(20px)", border: `1px solid ${ac}40`, boxShadow: `0 0 40px ${ac}15` }}
         >
-            <div className="flex items-center justify-center mb-6">
+            <div className="flex items-center justify-center mb-5">
               <Image
                 src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=8000&height=8000&resize=contain"
                 alt="Rumba Liguria"
                 width={64}
                 height={64}
-                className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-contain glow-blue"
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-contain"
+                style={{ filter: `drop-shadow(0 0 16px ${ac}80)` }}
               />
             </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-center text-white mb-2">Admin Panel</h2>
-          <p className="text-center text-gray-500 text-sm mb-6">Rumba Liguria Events</p>
+          <h2 className="text-xl sm:text-2xl font-extrabold text-center mb-1">
+            <span className="text-foreground">Rumba</span> <span style={{ color: ac }}>Liguria</span>
+          </h2>
+          <p className="text-center text-gray-500 text-xs sm:text-sm mb-6 tracking-[0.2em] uppercase">Area Riservata</p>
 
+          {loginStep === "credentials" && (
           <div className="space-y-4">
             <div>
               <label className="text-sm text-gray-400 mb-1 block">Username</label>
@@ -1272,7 +1434,9 @@ export default function AdminPage() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none transition-all text-base"
+                onFocus={(e) => (e.currentTarget.style.borderColor = `${ac}66`)}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "")}
                 placeholder="Username"
               />
             </div>
@@ -1284,7 +1448,9 @@ export default function AdminPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                    className="w-full px-4 py-3 pr-12 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                    className="w-full px-4 py-3 pr-12 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none transition-all text-base"
+                    onFocus={(e) => (e.currentTarget.style.borderColor = `${ac}66`)}
+                    onBlur={(e) => (e.currentTarget.style.borderColor = "")}
                     placeholder="Password"
                   />
                   <button
@@ -1299,24 +1465,103 @@ export default function AdminPage() {
             <button
               onClick={handleLogin}
               disabled={loginLoading}
-              className="w-full py-3.5 sm:py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 disabled:opacity-50 glow-blue-sm text-base active:scale-[0.98]"
+              className="btn-shine w-full py-3.5 sm:py-3 rounded-xl text-white font-semibold transition-all duration-300 disabled:opacity-50 text-base active:scale-[0.98]"
+              style={{ background: ac, boxShadow: `0 0 24px ${ac}40` }}
             >
               {loginLoading ? "Accesso..." : "Accedi"}
             </button>
           </div>
+          )}
+
+          {loginStep === "channel" && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400 text-center mb-1">Come vuoi ricevere il codice di verifica?</p>
+              {twoFAChannels.includes("email") && (
+                <button
+                  onClick={() => requestCode("email")}
+                  disabled={twoFASending}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/25 transition-all text-left disabled:opacity-50"
+                >
+                  <Mail size={20} style={{ color: ac }} />
+                  <div>
+                    <p className="text-white font-semibold text-sm">Email</p>
+                    <p className="text-gray-500 text-xs">{twoFAMasked.email}</p>
+                  </div>
+                </button>
+              )}
+              {twoFAChannels.includes("whatsapp") && (
+                <button
+                  onClick={() => requestCode("whatsapp")}
+                  disabled={twoFASending}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/25 transition-all text-left disabled:opacity-50"
+                >
+                  <MessageCircle size={20} className="text-green-400" />
+                  <div>
+                    <p className="text-white font-semibold text-sm">WhatsApp</p>
+                    <p className="text-gray-500 text-xs">{twoFAMasked.phone}</p>
+                  </div>
+                </button>
+              )}
+              <button
+                onClick={() => { setLoginStep("credentials"); setPassword(""); }}
+                className="w-full text-xs text-gray-500 hover:text-gray-300 pt-1"
+              >
+                ← Torna indietro
+              </button>
+            </div>
+          )}
+
+          {loginStep === "code" && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-400 text-center">Inserisci il codice a 6 cifre che ti abbiamo inviato. Scade tra 10 minuti.</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                maxLength={6}
+                value={twoFACode}
+                onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onKeyDown={(e) => e.key === "Enter" && twoFACode.length === 6 && verifyCode()}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-center text-2xl tracking-[0.5em] focus:outline-none transition-all"
+                onFocus={(e) => (e.currentTarget.style.borderColor = `${ac}66`)}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "")}
+                placeholder="••••••"
+              />
+              <button
+                onClick={verifyCode}
+                disabled={twoFASending || twoFACode.length !== 6}
+                className="btn-shine w-full py-3.5 sm:py-3 rounded-xl text-white font-semibold transition-all duration-300 disabled:opacity-50 text-base active:scale-[0.98]"
+                style={{ background: ac, boxShadow: `0 0 24px ${ac}40` }}
+              >
+                {twoFASending ? "Verifica..." : "Verifica e accedi"}
+              </button>
+              <button
+                onClick={() => setLoginStep(twoFAChannels.length > 1 ? "channel" : "credentials")}
+                className="w-full text-xs text-gray-500 hover:text-gray-300"
+              >
+                Non hai ricevuto il codice? Riprova
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // ─── Datos derivados para la barra lateral (Prossimo evento) ───
+  // El resto de derivaciones de la Panoramica viven ahora en <OverviewTab/>.
+  const activeEvents = events.filter((e) => !e.archived);
+  const upcomingEvents = [...activeEvents]
+    .filter((e) => !e.event_date_iso || e.event_date_iso >= new Date().toISOString().slice(0, 10))
+    .sort((a, b) => (a.event_date_iso || "9999").localeCompare(b.event_date_iso || "9999"))
+    .slice(0, 5);
+  const nextEvent = upcomingEvents[0];
+
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[400px] sm:w-[600px] h-[200px] sm:h-[300px] bg-blue-500/5 rounded-full blur-[120px]" />
-      </div>
+    <div className="theme-admin min-h-screen bg-background text-foreground relative">
 
       {/* Admin Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/80 border-b border-blue-500/10">
+      <header className="admin-header sticky top-0 z-50 backdrop-blur-xl bg-background/80">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3">
               <Image
@@ -1327,14 +1572,16 @@ export default function AdminPage() {
                 className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-contain flex-shrink-0"
               />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-lg font-bold text-white truncate">Admin Panel</h1>
-              <p className="text-[10px] sm:text-xs text-gray-500">Rumba Liguria Events</p>
+              <h1 className="text-sm sm:text-lg font-bold tracking-tight text-foreground truncate">Rumba Liguria</h1>
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">Pannello di controllo</p>
             </div>
           </div>
-            <div className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <ThemeToggle className="!w-8 !h-8 sm:!w-9 sm:!h-9" />
               <button
                 onClick={() => setShowScanChooser(true)}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-all text-xs sm:text-sm font-medium active:scale-95"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-white transition-all active:scale-95"
+                style={{ background: accentColor }}
                 title="Scansiona QR"
               >
                 <Camera size={14} />
@@ -1342,14 +1589,14 @@ export default function AdminPage() {
               </button>
               <a
                 href="/"
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all text-xs sm:text-sm"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all text-xs sm:text-sm"
               >
                 <Eye size={14} />
                 <span className="hidden xs:inline">Sito</span>
               </a>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-xs sm:text-sm"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-accent transition-all text-xs sm:text-sm"
             >
               <LogOut size={14} />
               <span className="hidden xs:inline">Esci</span>
@@ -1358,57 +1605,15 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 relative z-10">
-        {/* Stats */}
-          <div className="grid grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
-            <div className="p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <Calendar size={16} className="text-blue-400 flex-shrink-0 sm:hidden" />
-                <Calendar size={20} className="text-blue-400 flex-shrink-0 hidden sm:block" />
-                <div className="min-w-0">
-                  <p className="text-lg sm:text-2xl font-bold text-white">{events.length}</p>
-                  <p className="text-[10px] sm:text-xs text-gray-500">Eventi</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <Users size={16} className="text-blue-400 flex-shrink-0 sm:hidden" />
-                <Users size={20} className="text-blue-400 flex-shrink-0 hidden sm:block" />
-                <div className="min-w-0">
-                  <p className="text-lg sm:text-2xl font-bold text-white">{users.length}</p>
-                  <p className="text-[10px] sm:text-xs text-gray-500">Utenti</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <Ticket size={16} className="text-blue-400 flex-shrink-0 sm:hidden" />
-                <Ticket size={20} className="text-blue-400 flex-shrink-0 hidden sm:block" />
-                <div className="min-w-0">
-                  <p className="text-lg sm:text-2xl font-bold text-white">{reservations.length}</p>
-                  <p className="text-[10px] sm:text-xs text-gray-500">Prenot.</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <ImageIcon size={16} className="text-blue-400 flex-shrink-0 sm:hidden" />
-                <ImageIcon size={20} className="text-blue-400 flex-shrink-0 hidden sm:block" />
-                <div className="min-w-0">
-                  <p className="text-lg sm:text-2xl font-bold text-white">{gallery.length}</p>
-                  <p className="text-[10px] sm:text-xs text-gray-500">Galleria</p>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 relative z-10 lg:flex lg:gap-6 lg:items-start">
 
-        {/* Tabs */}
-        <div className="flex gap-1.5 sm:gap-2 mb-4 sm:mb-6 overflow-x-auto pb-1 scrollbar-none">
+        {/* ─── Sidebar nav — desktop only ─── */}
+        <nav className="admin-sidebar hidden lg:block w-56 flex-shrink-0 sticky top-20 space-y-1">
           {([
             { key: "events", icon: Calendar, label: "Eventi" },
             { key: "users", icon: Users, label: "Utenti" },
             { key: "reservations", icon: Ticket, label: "Prenotazioni" },
+            { key: "overview", icon: BarChart2, label: "Panoramica" },
             { key: "gallery", icon: Images, label: "Galleria" },
             { key: "rentals", icon: Package, label: rentalConfig.button_name || "Noleggio" },
             { key: "cards", icon: CreditCard, label: "Tessere" },
@@ -1416,18 +1621,89 @@ export default function AdminPage() {
           ] as const).map(({ key, icon: Icon, label }) => (
             <button
               key={key}
-              onClick={() => { setActiveTab(key); if (key === "users") fetchUsers(); }}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+              onClick={() => { setActiveTab(key); if (key === "users") fetchUsers(); else if (key === "gallery") fetchHeroPhotos(); else if (key === "settings") fetchSecurity(); }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 activeTab === key
-                  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
-                  : "bg-white/5 text-gray-400 hover:bg-white/10"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
+              style={activeTab === key ? { background: `${accentColor}20`, border: `1px solid ${accentColor}40` } : { border: "1px solid transparent" }}
             >
-              <Icon size={14} />
+              <Icon size={16} style={activeTab === key ? { color: accentColor } : undefined} />
+              {label}
+            </button>
+          ))}
+
+          {/* Prossimo evento — real data, not a promo mock-up */}
+          {nextEvent && (
+            <div className="mt-4 rounded-xl overflow-hidden border border-border">
+              {nextEvent.flyer_url && (
+                <div className="relative w-full h-24">
+                  <Image src={nextEvent.flyer_url} alt="" fill sizes="224px" className="object-cover" />
+                </div>
+              )}
+              <div className="p-3">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Prossimo evento</p>
+                <p className="text-sm font-bold text-foreground truncate">{nextEvent.title}</p>
+                <p className="text-xs text-muted-foreground mb-2">{nextEvent.event_date || "—"}</p>
+                <button
+                  onClick={() => { setActiveTab("events"); }}
+                  className="w-full py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
+                  style={{ background: accentColor }}
+                >
+                  Gestisci
+                </button>
+              </div>
+            </div>
+          )}
+        </nav>
+
+        <div className="min-w-0 flex-1">
+
+        {/* Tabs — mobile/tablet only, sidebar takes over on desktop */}
+        <div className="flex lg:hidden gap-1.5 sm:gap-2 mb-4 sm:mb-6 overflow-x-auto pb-1 scrollbar-none">
+          {([
+            { key: "events", icon: Calendar, label: "Eventi" },
+            { key: "users", icon: Users, label: "Utenti" },
+            { key: "reservations", icon: Ticket, label: "Prenotazioni" },
+            { key: "overview", icon: BarChart2, label: "Panoramica" },
+            { key: "gallery", icon: Images, label: "Galleria" },
+            { key: "rentals", icon: Package, label: rentalConfig.button_name || "Noleggio" },
+            { key: "cards", icon: CreditCard, label: "Tessere" },
+            { key: "settings", icon: Settings, label: "Impostazioni" },
+          ] as const).map(({ key, icon: Icon, label }) => (
+            <button
+              key={key}
+              onClick={() => { setActiveTab(key); if (key === "users") fetchUsers(); else if (key === "gallery") fetchHeroPhotos(); else if (key === "settings") fetchSecurity(); }}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all border ${
+                activeTab === key
+                  ? "text-foreground"
+                  : "text-muted-foreground border-transparent hover:bg-accent hover:text-foreground"
+              }`}
+              style={activeTab === key ? { background: `${accentColor}18`, borderColor: `${accentColor}40` } : undefined}
+            >
+              <Icon size={14} style={activeTab === key ? { color: accentColor } : undefined} />
               {label}
             </button>
           ))}
         </div>
+
+        {/* ─── Panoramica (Overview) Tab ─── */}
+        {activeTab === "overview" && (
+          <OverviewTab
+            events={events}
+            reservations={reservations}
+            users={users}
+            galleryCount={gallery.length}
+            vipCodesCount={vipCodesCount}
+            clientCardsCount={clientCardsCount}
+            accentColor={accentColor}
+            isLightTheme={isLightTheme}
+            onNewEvent={() => { resetForm(); setShowForm(true); setActiveTab("events"); }}
+            onOpenScanner={() => setShowScanChooser(true)}
+            onGoToTab={(tab) => setActiveTab(tab)}
+          />
+        )}
 
         {/* ─── Events Tab ─── */}
         {activeTab === "events" && (
@@ -2205,6 +2481,22 @@ export default function AdminPage() {
                                 placeholder="es. Entrada Hombre"
                                 className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
                               />
+                              <div className="relative w-24">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">€</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={tt.price ?? ""}
+                                  onChange={(e) => {
+                                    const next = [...formTicketTypes];
+                                    next[i].price = e.target.value === "" ? undefined : Number(e.target.value);
+                                    setFormTicketTypes(next);
+                                  }}
+                                  placeholder="Gratis"
+                                  className="w-full pl-6 pr-2 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
+                                />
+                              </div>
                               <input
                                 type="color"
                                 value={tt.color}
@@ -2231,6 +2523,7 @@ export default function AdminPage() {
                               <Plus size={14} /> Aggiungi tipo
                             </button>
                           )}
+                          <p className="text-[10px] text-gray-500">Dejá el precio vacío para que ese tipo de entrada sea gratis (reserva directa, sin pasar por pago online).</p>
                         </div>
                       </div>
 
@@ -2259,11 +2552,10 @@ export default function AdminPage() {
                         <label className="text-sm text-gray-400 mb-1 block">📸 Flyer / Copertina</label>
                         {formData.flyer_url ? (
                           <div className="relative rounded-xl overflow-hidden bg-black mb-2">
-                            <img
-                              src={formData.flyer_url}
-                              alt="Preview"
-                              className="w-full h-auto block"
-                            />
+                            {(() => {
+                              const [rw, rh] = formData.flyer_ratio === "9:16" ? [900, 1600] : formData.flyer_ratio === "1:1" ? [1000, 1000] : [1600, 900];
+                              return <Image src={formData.flyer_url} alt="Preview" width={rw} height={rh} sizes="(max-width:640px) 100vw, 640px" className="w-full h-auto block" />;
+                            })()}
                             <button
                               onClick={() => setFormData((p) => ({ ...p, flyer_url: "" }))}
                               className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-500/80 transition-all"
@@ -2378,9 +2670,11 @@ export default function AdminPage() {
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><circle cx="4" cy="3" r="1.2"/><circle cx="10" cy="3" r="1.2"/><circle cx="4" cy="7" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="4" cy="11" r="1.2"/><circle cx="10" cy="11" r="1.2"/></svg>
                       </div>
                       {event.flyer_url && (
-                        <img
+                        <Image
                           src={event.flyer_url}
                           alt={event.title}
+                          width={64}
+                          height={64}
                           className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg object-cover flex-shrink-0"
                         />
                       )}
@@ -2469,7 +2763,7 @@ export default function AdminPage() {
                           }`}
                         >
                           {event.flyer_url && (
-                            <img src={event.flyer_url} alt={event.title} className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover flex-shrink-0 ${event.publish_at && new Date(event.publish_at) > new Date() ? "" : "grayscale"}`} />
+                            <Image src={event.flyer_url} alt={event.title} width={48} height={48} className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover flex-shrink-0 ${event.publish_at && new Date(event.publish_at) > new Date() ? "" : "grayscale"}`} />
                           )}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -2740,6 +3034,11 @@ export default function AdminPage() {
                         r.user_email?.toLowerCase().includes(q)
                       )
                     : byEvent;
+                  const usersByEmail = new Map(users.map(u => [u.email.toLowerCase(), u]));
+                  const typeCount = (type: string) => filtered.filter(r => {
+                    const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+                    return type === "NONE" ? ru?.source !== "registered" : ru?.userType === type;
+                  }).length;
                   return (
                     <>
                       <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
@@ -2772,6 +3071,20 @@ export default function AdminPage() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+                        {[
+                          { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
+                          { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
+                          { type: "ALTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
+                          { type: "NONE", label: "Non registrato", color: "text-gray-400", border: "border-white/10" },
+                        ].map(({ type, label, color, border }) => (
+                          <div key={type} className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border ${border}`}>
+                            <p className={`text-lg sm:text-2xl font-bold ${color}`}>{typeCount(type)}</p>
+                            <p className="text-[10px] sm:text-xs text-gray-500">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+
                       {filtered.length > 0 && (
                         <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border">
                           <div className="flex items-center justify-between mb-2">
@@ -2796,7 +3109,9 @@ export default function AdminPage() {
                         </div>
                       ) : (
                         <div className="space-y-2 sm:space-y-3">
-                          {filtered.map((r) => (
+                          {filtered.map((r) => {
+                              const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+                              return (
                               <div
                                 key={r.id}
                                 className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all ${r.status === "used" ? "border-green-500/30 bg-green-950/20" : r.status === "cancelled" ? "border-gray-500/20 opacity-50" : "border-blue-500/10 glow-border"}`}
@@ -2808,6 +3123,16 @@ export default function AdminPage() {
                                         {r.status === "used" ? <CheckCircle size={10} /> : r.status === "cancelled" ? <XCircle size={10} /> : <Ticket size={10} />}
                                         {r.status === "used" ? "Entrato" : r.status === "cancelled" ? "Cancellata" : "Attiva"}
                                       </span>
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${ru?.source === "registered" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"}`}>
+                                        {ru?.source === "registered" ? "Registrato" : "Solo prenotazione"}
+                                      </span>
+                                      {ru?.userType && (
+                                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                                          ru.userType === "ERASMUS" ? "bg-green-500/10 text-green-400 border border-green-500/20" :
+                                          ru.userType === "UNIVERSITARIO" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" :
+                                          "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                        }`}>{ru.userType}</span>
+                                      )}
                                       {selectedEventFilter === "all" && r.events && (
                                         <span className="text-[10px] text-gray-500 truncate">{r.events.title}</span>
                                       )}
@@ -2861,7 +3186,8 @@ export default function AdminPage() {
                                   </div>
                                 </div>
                               </div>
-                          ))}
+                              );
+                          })}
                         </div>
                       )}
                     </>
@@ -2911,8 +3237,8 @@ export default function AdminPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="aspect-square">
-                          <img src={item.url} alt="Galleria" className="w-full h-full object-cover" loading="lazy" />
+                        <div className="relative aspect-square">
+                          <Image src={item.url} alt="Galleria" fill sizes="(max-width:640px) 33vw, 180px" className="object-cover" />
                         </div>
                       )}
                       {/* Delete button — always visible on mobile */}
@@ -2930,6 +3256,54 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+
+              {/* ─── Foto Hero (fondo rotativo della home) ─── */}
+              <div className="mt-8 pt-6 border-t border-white/10">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base sm:text-lg font-bold">🎬 Foto Hero ({heroPhotos.length})</h2>
+                  <label className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-pink-600 text-white hover:bg-pink-500 transition-all text-xs sm:text-sm font-medium cursor-pointer active:scale-95">
+                    <Upload size={14} />
+                    {heroPhotoUploading ? "Caricamento..." : "Aggiungi"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleHeroPhotoUpload}
+                      className="hidden"
+                      disabled={heroPhotoUploading}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">Foto che ruotano di sfondo nella Hero della home page (una ogni minuto). Aggiungine o toglline quante vuoi, quando vuoi.</p>
+
+                {heroPhotos.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Images size={32} className="mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">Nessuna foto per la Hero</p>
+                    <p className="text-xs text-gray-600 mt-1">Senza foto, la Hero mostra solo lo sfondo con le luci</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                    {heroPhotos.map((item) => (
+                      <div key={item.id} className="relative rounded-xl overflow-hidden border border-white/5 bg-black">
+                        <div className="relative aspect-square">
+                          <Image src={item.url} alt="Foto Hero" fill sizes="(max-width:640px) 50vw, 180px" className="object-cover" />
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (confirm("Rimuovere questa foto dalla Hero?")) {
+                              handleDeleteHeroPhoto(item.id);
+                            }
+                          }}
+                          className="absolute top-1.5 right-1.5 p-2 rounded-full bg-black/70 text-white hover:bg-red-500 active:bg-red-600 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -3034,7 +3408,7 @@ export default function AdminPage() {
                       <div className="flex flex-wrap gap-2 mb-2">
                         {(rentalForm.photos || []).map((url, i) => (
                           <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden">
-                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            <Image src={url} alt="" fill sizes="64px" className="object-cover" />
                             <button onClick={() => setRentalForm(p => ({ ...p, photos: (p.photos || []).filter((_, j) => j !== i) }))} className="absolute top-0.5 right-0.5 p-0.5 bg-black/70 rounded-full text-white"><X size={10} /></button>
                           </div>
                         ))}
@@ -3067,7 +3441,7 @@ export default function AdminPage() {
                       {rentalConfig.items.filter(i => !i.archived).map(item => (
                         <div key={item.id} className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all ${item.available ? "border-blue-500/10" : "border-gray-500/10"}`}>
                           <div className="flex items-start gap-3">
-                            {item.photos[0] && <img src={item.photos[0]} alt="" className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover flex-shrink-0" />}
+                            {item.photos[0] && <Image src={item.photos[0]} alt="" width={64} height={64} className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover flex-shrink-0" />}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap mb-1">
                                 <span className="font-semibold text-sm text-white truncate">{item.name}</span>
@@ -3088,7 +3462,7 @@ export default function AdminPage() {
                           </div>
                           {item.photos.length > 1 && (
                             <div className="flex gap-1.5 mt-2 overflow-x-auto">
-                              {item.photos.slice(1).map((url, i) => <img key={i} src={url} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />)}
+                              {item.photos.slice(1).map((url, i) => <Image key={i} src={url} alt="" width={40} height={40} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />)}
                             </div>
                           )}
                         </div>
@@ -3109,7 +3483,7 @@ export default function AdminPage() {
                           {rentalConfig.items.filter(i => i.archived).map(item => (
                             <div key={item.id} className="p-3 rounded-xl bg-[#0a0a12] border border-gray-500/10 opacity-60">
                               <div className="flex items-center gap-3">
-                                {item.photos[0] && <img src={item.photos[0]} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 grayscale" />}
+                                {item.photos[0] && <Image src={item.photos[0]} alt="" width={40} height={40} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 grayscale" />}
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm text-gray-400 truncate">{item.name}</p>
                                   {item.price && <p className="text-[10px] text-gray-600">{item.price}</p>}
@@ -3239,8 +3613,90 @@ export default function AdminPage() {
                   Dopo aver cambiato le credenziali, dovrai usare le nuove al prossimo accesso.
                 </p>
           </div>
+
+          {/* Verifica in due passaggi (2FA) */}
+          <div className="p-4 sm:p-6 rounded-xl bg-[#0a0a12] border border-blue-500/10 glow-border space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock size={16} style={{ color: accentColor }} />
+              <p className="text-sm font-medium text-white">Verifica in due passaggi</p>
+            </div>
+            <p className="text-xs text-gray-500">
+              Dopo username e password, l&apos;accesso richiede un codice a 6 cifre inviato via email o WhatsApp.
+              Se non imposti né email né WhatsApp, l&apos;accesso resta con sola password.
+            </p>
+
+            <label className="flex items-center justify-between gap-3 cursor-pointer">
+              <span className="text-sm text-gray-300">Richiedi il codice all&apos;accesso</span>
+              <input
+                type="checkbox"
+                checked={sec2FA}
+                onChange={(e) => setSec2FA(e.target.checked)}
+                className="w-4 h-4 accent-blue-500"
+              />
+            </label>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Email per il codice</label>
+              <input
+                type="email"
+                value={secEmail}
+                onChange={(e) => setSecEmail(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                placeholder="admin@esempio.com"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Numero WhatsApp (formato internazionale)</label>
+              <input
+                type="tel"
+                value={secPhone}
+                onChange={(e) => setSecPhone(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                placeholder="+39 333 1234567"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">
+                API key CallMeBot {secApiKeySet && <span className="text-green-500">(configurata)</span>}
+              </label>
+              <input
+                type="text"
+                value={secApiKey}
+                onChange={(e) => setSecApiKey(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                placeholder={secApiKeySet ? "•••••••• (lascia vuoto per non cambiare)" : "Es. 123456"}
+              />
+              <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                Per ottenerla: salva il numero <strong>+34 644 51 95 23</strong> in rubrica e inviagli su WhatsApp
+                il messaggio <em>&quot;I allow callmebot to send me messages&quot;</em>. Riceverai la tua API key.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Password attuale *</label>
+              <input
+                type="password"
+                value={secCurrentPass}
+                onChange={(e) => setSecCurrentPass(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                placeholder="Conferma con la password del pannello"
+              />
+            </div>
+
+            <button
+              onClick={handleSecurityUpdate}
+              disabled={secSaving}
+              className="w-full py-3.5 sm:py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 disabled:opacity-50 flex items-center justify-center gap-2 glow-blue-sm text-base active:scale-[0.98]"
+            >
+              <Lock size={18} />
+              {secSaving ? "Salvataggio..." : "Salva sicurezza"}
+            </button>
+          </div>
         </div>
       )}
+        </div>
         </div>
 
       {/* ─── Scan chooser: pick which kind of QR to scan ─── */}
@@ -3418,7 +3874,12 @@ export default function AdminPage() {
 
     {/* ─── Statistics Modal ─── */}
     {statsEvent && (() => {
-      const evRes = reservations.filter(r => r.events?.title === statsEvent.title);
+      // Los códigos VIP y los links RRPP comparten la tabla reservations pero
+      // no son clientes reales — se excluyen igual que en la Panoramica.
+      const evRes = reservations.filter(r =>
+        r.events?.title === statsEvent.title &&
+        r.user_email !== "__vip__" && !r.user_email?.startsWith("__link__")
+      );
       const total = evRes.length;
       const active = evRes.filter(r => r.status === "active").length;
       const entered = evRes.filter(r => r.status === "used").length;
@@ -3426,6 +3887,33 @@ export default function AdminPage() {
       const totalGuests = evRes.reduce((s, r) => s + (r.guest_count || 1), 0);
       const enteredGuests = evRes.filter(r => r.status === "used").reduce((s, r) => s + (r.guest_count || 1), 0);
       const pct = total > 0 ? Math.round((entered / total) * 100) : 0;
+      const fillRate = statsEvent.max_tickets ? Math.round((totalGuests / statsEvent.max_tickets) * 100) : null;
+
+      // Che tipo di cliente ha riempito questo evento — incrocio per email
+      // con gli utenti registrati, come nella tab Prenotazioni.
+      const usersByEmail = new Map(users.map(u => [u.email.toLowerCase(), u]));
+      const TYPE_META: Record<string, { label: string; color: string; bar: string }> = {
+        ERASMUS: { label: "Erasmus", color: "text-green-400", bar: "bg-green-500" },
+        UNIVERSITARIO: { label: "Universitario", color: "text-blue-400", bar: "bg-blue-500" },
+        ALTRO: { label: "Altro", color: "text-purple-400", bar: "bg-purple-500" },
+        NONE: { label: "Non registrato", color: "text-gray-400", bar: "bg-gray-500" },
+      };
+      const typeBreakdown = (() => {
+        const groups = new Map<string, typeof evRes>();
+        for (const r of evRes) {
+          const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+          const key = ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
+          groups.set(key, [...(groups.get(key) ?? []), r]);
+        }
+        return Array.from(groups.entries())
+          .map(([key, list]) => ({ key, ...TYPE_META[key], list, count: list.length }))
+          .sort((a, b) => b.count - a.count);
+      })();
+      const dominantType = typeBreakdown[0];
+      const recommendation = total === 0 ? null :
+        pct >= 70 ? { label: "🔥 Da ripetere", color: "bg-green-500/15 text-green-400 border-green-500/25" } :
+        pct < 40 ? { label: "⚠️ Bassa affluenza", color: "bg-red-500/15 text-red-400 border-red-500/25" } :
+        { label: "Nella media", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25" };
 
       const statCards: { label: string; value: number; color: string; borderColor: string; list?: typeof evRes }[] = [
         { label: "Prenotazioni totali", value: total, color: "text-white", borderColor: "border-white/8", list: evRes },
@@ -3479,9 +3967,16 @@ export default function AdminPage() {
             ) : (
               /* ── Stats overview ── */
               <div className="p-4 space-y-4 overflow-y-auto flex-1">
-                <div>
-                  <p className="text-sm font-semibold text-white mb-0.5">{statsEvent.title}</p>
-                  {statsEvent.event_date_iso && <p className="text-xs text-gray-500">{new Date(statsEvent.event_date_iso).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</p>}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white mb-0.5">{statsEvent.title}</p>
+                    {statsEvent.event_date_iso && <p className="text-xs text-gray-500">{new Date(statsEvent.event_date_iso).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}</p>}
+                  </div>
+                  {recommendation && (
+                    <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${recommendation.color}`}>
+                      {recommendation.label}
+                    </span>
+                  )}
                 </div>
                 <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
                   <div className="flex items-center justify-between mb-2">
@@ -3492,6 +3987,42 @@ export default function AdminPage() {
                     <div className="h-full rounded-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
+                {fillRate !== null && (
+                  <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-gray-400">Riempimento (persone / capienza)</p>
+                      <p className="text-xs font-bold text-white">{totalGuests} / {statsEvent.max_tickets} ({fillRate}%)</p>
+                    </div>
+                    <div className="w-full h-3 rounded-full bg-white/5 overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all" style={{ width: `${Math.min(fillRate, 100)}%` }} />
+                    </div>
+                  </div>
+                )}
+                {typeBreakdown.length > 0 && (
+                  <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <p className="text-xs text-gray-400">Tipo di cliente</p>
+                      {dominantType && <p className="text-[11px] text-gray-500">Più presente: <span className={dominantType.color}>{dominantType.label}</span></p>}
+                    </div>
+                    <div className="space-y-2">
+                      {typeBreakdown.map((t) => (
+                        <button
+                          key={t.key}
+                          onClick={() => setStatsDrilldown({ label: t.label, list: t.list })}
+                          className="w-full text-left group"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[11px] font-medium ${t.color}`}>{t.label}</span>
+                            <span className="text-[11px] text-gray-500 group-hover:text-gray-300">{t.count} · {Math.round((t.count / total) * 100)}%</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                            <div className={`h-full rounded-full ${t.bar} transition-all`} style={{ width: `${(t.count / total) * 100}%` }} />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {statCards.map(({ label, value, color, borderColor, list }) => (
                     <button

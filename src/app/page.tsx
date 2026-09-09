@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Instagram,
@@ -33,9 +34,17 @@ import {
   Phone,
   Mail,
   ChevronDown,
-  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Crown,
+  Info,
+  LockKeyhole,
+  ArrowLeft,
+  Sparkles,
+  UserPlus,
 } from "lucide-react";
 import Image from "next/image";
+import ThemeToggle from "@/components/ThemeToggle";
 import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
@@ -44,6 +53,14 @@ interface GalleryItem {
   id: string;
   url: string;
   type: "image" | "video";
+  created_at: string;
+}
+
+interface EventComment {
+  id: string;
+  event_id: string;
+  user_email: string;
+  content: string;
   created_at: string;
 }
 
@@ -87,7 +104,7 @@ interface Event {
   min_age?: number;
   sale_start?: string;
   sale_end?: string;
-  ticket_types?: { name: string; color: string }[];
+  ticket_types?: { name: string; color: string; price?: number }[];
   created_at: string;
   reservation_total: number;
   reservation_used: number;
@@ -96,6 +113,19 @@ interface Event {
 }
 
 const WHATSAPP_BOOKING = "393501863148";
+const IT_MONTH_ABBR = ["GEN", "FEB", "MAR", "APR", "MAG", "GIU", "LUG", "AGO", "SET", "OTT", "NOV", "DIC"];
+
+// Small day/month badge (e.g. "24 / MAG") for the event card overlay —
+// returns null when event_date_iso isn't a parseable "YYYY-MM-DD", so the
+// badge simply doesn't render rather than showing garbage.
+function eventDateBadge(iso?: string): { day: string; month: string } | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  const monthIdx = parseInt(m[2], 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return null;
+  return { day: m[3], month: IT_MONTH_ABBR[monthIdx] };
+}
 
 const LANGS: {code: Lang;label: string;flag: string;}[] = [
 { code: "it", label: "Italiano", flag: "IT" },
@@ -104,12 +134,16 @@ const LANGS: {code: Lang;label: string;flag: string;}[] = [
 
 
 export default function Home() {
+  const router = useRouter();
   const [lang, setLang] = useState<Lang>("it");
   const [showLangMenu, setShowLangMenu] = useState(false);
+  // Si este navegador ya tiene una sesión de admin válida, mostramos un
+  // acceso directo al panel en el header — sin pasar de nuevo por el login.
+  const [hasAdminSession, setHasAdminSession] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPhone, setAuthPhone] = useState("");
   const [authFirstName, setAuthFirstName] = useState("");
@@ -117,17 +151,67 @@ export default function Home() {
   const [authUserType, setAuthUserType] = useState<string>("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  // Flujo 2FA del panel, resuelto dentro de este mismo modal cuando el
+  // usuario mete credenciales de administrador.
+  const [adminStep, setAdminStep] = useState<"none" | "channel" | "code">("none");
+  const [adminChannels, setAdminChannels] = useState<string[]>([]);
+  const [adminMasked, setAdminMasked] = useState<{ email: string | null; phone: string | null }>({ email: null, phone: null });
+  const [adminChallengeId, setAdminChallengeId] = useState("");
+  const [adminCode, setAdminCode] = useState("");
+  const [adminSending, setAdminSending] = useState(false);
   const [reservation, setReservation] = useState<{eventId: string;count: number;ticketType?: string;} | null>(null);
   const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypes?: {name: string; color: string}[];} | null>(null);
   const [reserving, setReserving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
-  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  // Ticks once a second so the "Evento in Evidenza" countdown stays live.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Hero slideshow. The set
+  // of photos is managed from the admin panel ("Foto Hero"), not hardcoded.
+  const [heroPhotos, setHeroPhotos] = useState<string[]>([]);
+  const [heroPhotoIndex, setHeroPhotoIndex] = useState(0);
+  const heroTouchStart = useRef<number | null>(null);
+  const moveHeroPhoto = useCallback((direction: 1 | -1) => {
+    if (heroPhotos.length < 2) return;
+    setHeroPhotoIndex((index) => (index + direction + heroPhotos.length) % heroPhotos.length);
+  }, [heroPhotos.length]);
+  useEffect(() => {
+    if (heroPhotos.length < 2) return;
+    const id = setInterval(() => moveHeroPhoto(1), 6500);
+    return () => clearInterval(id);
+  }, [heroPhotos.length, moveHeroPhoto]);
+  // Which event's full-detail popup is open (compact grid cards just show a
+  // preview + "Vedi Evento"; the popup carries description, reservation,
+  // map, everything).
+  const [detailEventId, setDetailEventId] = useState<string | null>(null);
   const [snowflakes, setSnowflakes] = useState<{left: number;duration: number;delay: number;opacity: number;size: number;char: string;}[]>([]);
   const [accentColor, setAccentColor] = useState("#3b82f6");
   const [cancelledReservations, setCancelledReservations] = useState<{code: string;eventTitle: string;}[]>([]);
   const [expandedMaps, setExpandedMaps] = useState<Set<string>>(new Set());
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [eventComments, setEventComments] = useState<EventComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentSending, setCommentSending] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const galleryTouchStart = useRef<number | null>(null);
+  const moveGallery = useCallback((direction: 1 | -1) => {
+    if (gallery.length < 2) return;
+    setGalleryIndex((index) => (index + direction + gallery.length) % gallery.length);
+  }, [gallery.length]);
+  useEffect(() => {
+    if (gallery.length < 2) return;
+    const id = setInterval(() => moveGallery(1), 3000);
+    return () => clearInterval(id);
+  }, [gallery.length, moveGallery]);
+  useEffect(() => {
+    setGalleryIndex((index) => Math.min(index, Math.max(gallery.length - 1, 0)));
+  }, [gallery.length]);
   const [showProfile, setShowProfile] = useState(false);
   const [userReservations, setUserReservations] = useState<(any)[]>([]);
   const [loadingReservations, setLoadingReservations] = useState(false);
@@ -146,27 +230,59 @@ export default function Home() {
 
 
   useEffect(() => {
+    // Copos de nieve solo en invierno (dic–feb). El resto del año, unos
+    // pocos puntos de ambiente para que el hero no quede plano.
+    const month = new Date().getMonth();
+    const isWinter = month === 11 || month === 0 || month === 1;
     setSnowflakes(
-      Array.from({ length: 30 }, (_, i) => ({
+      Array.from({ length: isWinter ? 30 : 12 }, (_, i) => ({
         left: Math.random() * 100,
         duration: 6 + Math.random() * 10,
         delay: Math.random() * 8,
         opacity: 0.3 + Math.random() * 0.5,
         size: 6 + Math.random() * 12,
-        char: i % 3 === 0 ? '❄' : '•'
+        char: isWinter && i % 3 === 0 ? '❄' : '•'
       }))
     );
   }, []);
 
   useEffect(() => {
+    // Evita el parpadeo del color de marca: primero el valor cacheado de la
+    // última visita, luego el fresco del servidor.
+    try {
+      const cached = localStorage.getItem("rumba_accent");
+      if (cached) setAccentColor(cached);
+    } catch {}
     fetch("/api/admin/color").then((r) => r.json()).then((d) => {
-      if (d.accent_color) setAccentColor(d.accent_color);
+      if (d.accent_color) {
+        setAccentColor(d.accent_color);
+        try { localStorage.setItem("rumba_accent", d.accent_color); } catch {}
+      }
+    }).catch(() => {});
+    fetch("/api/admin/session").then((r) => r.json()).then((d) => {
+      if (d.authenticated) {
+        setHasAdminSession(true);
+        router.prefetch("/admin");
+        // El admin también puede usar el sitio "de cliente" (reservar, ver
+        // sus QR) con el email que ya tiene configurado para el 2FA — sin
+        // pisar una sesión de cliente real si ya había una guardada.
+        if (d.email && !localStorage.getItem("rumba_user")) {
+          setUserEmail(d.email);
+        }
+      }
     }).catch(() => {});
     // Track custom link referral from URL and resolve which event it
     // currently points to (the admin can reassign a link name to a new
     // event, so this can't just be read from the URL).
     try {
       const params = new URLSearchParams(window.location.search);
+      if (params.get("payment") === "cancelled") {
+        // Efecto de montaje: `lang` aún no cargó desde localStorage en este
+        // punto, así que se lee directo para no mostrar el toast siempre en it.
+        const savedLang = (localStorage.getItem("rumba_lang") as Lang) || "it";
+        toast.info(t(savedLang, "payment.cancelled"));
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       const ref = params.get("ref");
       if (ref) {
         sessionStorage.setItem("rumba_ref", ref);
@@ -185,7 +301,7 @@ export default function Home() {
           .finally(() => setRefPending(false));
       }
     } catch {}
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const saved = localStorage.getItem("rumba_lang");
@@ -223,11 +339,11 @@ export default function Home() {
       const data = await res.json();
       setUserReservations(data);
     } catch {
-      toast.error("Errore nel caricamento delle prenotazioni");
+      toast.error(t(lang, "profile.loadError"));
     } finally {
       setLoadingReservations(false);
     }
-  }, []);
+  }, [lang]);
 
   const fetchEvents = useCallback(async () => {
     const res = await fetch("/api/events");
@@ -260,6 +376,7 @@ export default function Home() {
   useEffect(() => {
     fetchEvents();
     fetch("/api/gallery").then(r => r.json()).then(d => { if (Array.isArray(d)) setGallery(d); }).catch(() => {});
+    fetch("/api/hero-photos").then(r => r.json()).then(d => { if (Array.isArray(d)) setHeroPhotos(d.map((p: { url: string }) => p.url)); }).catch(() => {});
     fetch("/api/rentals").then(r => r.json()).then(d => { if (d && !d.error) setRentalConfig(d); }).catch(() => {});
     const saved = localStorage.getItem("rumba_user");
     if (saved) {
@@ -283,14 +400,130 @@ export default function Home() {
     }
   }, [fetchEvents, checkCancelledReservations]);
 
+  useEffect(() => {
+    if (!detailEventId) {
+      setEventComments([]);
+      setCommentDraft("");
+      return;
+    }
+    setCommentsLoading(true);
+    fetch(`/api/comments?eventId=${encodeURIComponent(detailEventId)}`)
+      .then((res) => res.ok ? res.json() : [])
+      .then((data) => setEventComments(Array.isArray(data) ? data : []))
+      .catch(() => setEventComments([]))
+      .finally(() => setCommentsLoading(false));
+  }, [detailEventId]);
+
+  const submitEventComment = async () => {
+    if (!detailEventId || !userEmail || !commentDraft.trim() || commentSending) return;
+    setCommentSending(true);
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: detailEventId, user_email: userEmail, content: commentDraft.trim().slice(0, 280) }),
+      });
+      const comment = await res.json();
+      if (!res.ok) throw new Error(comment.error || t(lang, "auth.genericError"));
+      setEventComments((items) => [comment, ...items]);
+      setCommentDraft("");
+      toast.success(t(lang, "eventDetail.commentPosted"));
+    } catch {
+      toast.error(t(lang, "eventDetail.commentPostError"));
+    } finally {
+      setCommentSending(false);
+    }
+  };
+
+  const resetAdminFlow = () => {
+    setAdminStep("none");
+    setAdminChannels([]);
+    setAdminChallengeId("");
+    setAdminCode("");
+  };
+
+  const requestAdminCode = async (channel: string) => {
+    setAdminSending(true);
+    router.prefetch("/admin"); // el chunk del panel se descarga mientras llega el código
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: authEmail, password: authPassword, channel }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.challengeId) {
+        setAdminChallengeId(data.challengeId);
+        setAdminCode("");
+        setAdminStep("code");
+        toast.success(channel === "email" ? "Codice inviato via email" : "Codice inviato su WhatsApp");
+      } else {
+        toast.error(data.error || "Impossibile inviare il codice");
+      }
+    } catch {
+      toast.error(t(lang, "auth.connectionError"));
+    } finally {
+      setAdminSending(false);
+    }
+  };
+
+  const verifyAdminCode = async () => {
+    setAdminSending(true);
+    try {
+      const res = await fetch("/api/admin/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId: adminChallengeId, code: adminCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        router.push("/admin");
+      } else {
+        toast.error(data.error || t(lang, "auth2fa.wrongCode"));
+        if (res.status === 429 || res.status === 400) {
+          setAdminStep(adminChannels.length > 1 ? "channel" : "none");
+        }
+      }
+    } catch {
+      toast.error(t(lang, "auth.connectionError"));
+    } finally {
+      setAdminSending(false);
+    }
+  };
+
   const handleAuth = async () => {
+    if (authMode === "forgot") {
+      if (!authEmail.trim()) {
+        toast.error(t(lang, "auth.emailRequired"));
+        return;
+      }
+      setAuthLoading(true);
+      try {
+        const res = await fetch("/api/auth/password-reset/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: authEmail }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.error || t(lang, "auth.connectionError"));
+          return;
+        }
+        toast.success(t(lang, "auth.resetSent"));
+      } catch {
+        toast.error(t(lang, "auth.connectionError"));
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
     if (authMode === "register") {
       if (!authFirstName.trim() || !authLastName.trim()) {
-        toast.error("Inserisci nome e cognome");
+        toast.error(t(lang, "auth.nameRequired"));
         return;
       }
       if (!authPhone.trim()) {
-        toast.error("Il numero di telefono è obbligatorio");
+        toast.error(t(lang, "auth.phoneRequired"));
         return;
       }
       // Validate phone: international prefix required (+39 auto-added for Italian mobiles)
@@ -299,11 +532,11 @@ export default function Home() {
       if (/^3\d{8,9}$/.test(digitsOnly)) digitsOnly = "+39" + digitsOnly;
       const validPhone = /^\+[1-9]\d{7,14}$/.test(digitsOnly);
       if (!validPhone) {
-        toast.error("Inserisci un numero valido con prefisso internazionale (es. +39 347 000 0000)");
+        toast.error(t(lang, "auth.invalidPhone"));
         return;
       }
       if (!authUserType) {
-        toast.error("Seleziona: ERASMUS, UNIVERSITARIO o ALTRO");
+        toast.error(t(lang, "auth.selectUserType"));
         return;
       }
     }
@@ -317,7 +550,36 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Error");
+        // The shared access form also accepts the admin credentials. Only try
+        // this after the customer login fails, so normal accounts keep their
+        // exact current flow.
+        if (authMode === "login") {
+          const adminRes = await fetch("/api/admin/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: authEmail, password: authPassword }),
+          });
+          const adminData = await adminRes.json().catch(() => ({}));
+          if (adminRes.ok && adminData.success) {
+            // Panel sin 2FA: la cookie ya está puesta, entramos directo.
+            router.push("/admin");
+            return;
+          }
+          if (adminRes.ok && adminData.twoFactor) {
+            // Resolvemos el 2FA aquí mismo, sin mandar a /admin ni reescribir nada.
+            router.prefetch("/admin");
+            const channels: string[] = adminData.channels || [];
+            setAdminChannels(channels);
+            setAdminMasked({ email: adminData.maskedEmail ?? null, phone: adminData.maskedPhone ?? null });
+            if (channels.length === 1) {
+              await requestAdminCode(channels[0]);
+            } else {
+              setAdminStep("channel");
+            }
+            return;
+          }
+        }
+        toast.error(data.error || t(lang, "auth.genericError"));
         return;
       }
       const email = authMode === "register" ? authEmail.toLowerCase() : data.email;
@@ -360,8 +622,10 @@ export default function Home() {
   const confirmReservation = async (event: Event) => {
     if (!reservation || !userEmail) return;
     setReserving(true);
+    const selectedType = event.ticket_types?.find(tt => tt.name === reservation.ticketType);
+    const isPaid = !!selectedType?.price;
     try {
-      const res = await fetch("/api/reservations", {
+      const res = await fetch(isPaid ? "/api/checkout/create-session" : "/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -372,15 +636,23 @@ export default function Home() {
           referral: sessionStorage.getItem("rumba_ref") || undefined,
         })
       });
-      if (!res.ok) throw new Error();
-      const data = await res.json(); // Array of tickets
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || t(lang, "reservation.error"));
+
+      if (isPaid) {
+        // Redirige a la página de pago de Stripe — la reserva/QR se crean
+        // recién cuando vuelva confirmado, no acá.
+        window.location.href = data.url;
+        return;
+      }
+
       const codes = data.map((t: {code: string}) => t.code);
-        setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypes: event.ticket_types });
-        setReservation(null);
-        fetchUserReservations(userEmail);
-        toast.success(t(lang, "reservation.confirmed"));
-    } catch {
-      toast.error("Errore nella prenotazione");
+      setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypes: event.ticket_types });
+      setReservation(null);
+      fetchUserReservations(userEmail);
+      toast.success(t(lang, "reservation.confirmed"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t(lang, "reservation.error"));
     } finally {
       setReserving(false);
     }
@@ -390,7 +662,7 @@ export default function Home() {
     const containers = document.querySelectorAll(".qr-code-container");
     if (!containers.length) return;
     
-    toast.info("Salvataggio biglietti...");
+    toast.info(t(lang, "reservation.savingTickets"));
     
     for (let i = 0; i < containers.length; i++) {
       const svg = containers[i].querySelector("svg") as SVGElement;
@@ -422,7 +694,7 @@ export default function Home() {
         img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
       });
     }
-    toast.success("Tutti i biglietti sono stati salvati!");
+    toast.success(t(lang, "reservation.allTicketsSaved"));
   };
 
   // Returns true if the reservation has expired (next day after event at 05:00 Rome time)
@@ -475,7 +747,6 @@ export default function Home() {
   const a10 = `${a}1a`; // 10% opacity
   const a20 = `${a}33`; // 20% opacity
   const a30 = `${a}4d`; // 30% opacity
-  const a40 = `${a}66`; // 40% opacity
 
   // Arriving via a personalized RRPP link locks the page to that one event.
   // /api/custom-links already refuses to resolve an archived/reassigned-away
@@ -483,8 +754,28 @@ export default function Home() {
   const visibleEvents = linkedEventId ? events.filter((e) => e.id === linkedEventId) : events;
   const linkExpired = refExpired || (!!linkedEventId && events.length > 0 && visibleEvents.length === 0);
 
+  // "Evento in Evidenza": the popular one if there is an upcoming one, else
+  // just the next event on the list. Past events (booking already closed)
+  // never get featured.
+  const upcomingEvents = visibleEvents.filter((e) => {
+    const close = e.event_date_iso ? getSaleCloseUTC(e.event_date_iso) : null;
+    return close ? nowTick < close : true;
+  });
+  const featuredEvent = upcomingEvents.find((e) => e.is_popular) || upcomingEvents[0] || null;
+  const featuredCountdown = (() => {
+    if (!featuredEvent?.event_date_iso) return null;
+    const target = new Date(`${featuredEvent.event_date_iso}T${featuredEvent.event_time || "23:00"}:00`).getTime();
+    const diff = target - nowTick;
+    if (!Number.isFinite(diff) || diff <= 0) return null;
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    return { days, hours, minutes, seconds };
+  })();
+
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+    <div className="theme-page min-h-screen bg-black text-white relative overflow-hidden">
         <style>{`
           :root { --accent: ${a}; }
           * { --accent: ${a}; }
@@ -504,11 +795,11 @@ export default function Home() {
 
       {/* Header */}
         <header
-        className="sticky top-0 z-50 backdrop-blur-xl bg-black/80 animate-fade-in"
+        className="theme-header sticky top-0 z-50 backdrop-blur-xl bg-black/80 animate-fade-in"
         style={{ borderBottom: `1px solid ${a20}` }}>
 
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
+            <a href="/" aria-label="Ir al inicio de Rumba Liguria" className="flex items-center gap-2 sm:gap-3 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black">
               <Image
               src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=8000&height=8000&resize=contain"
               alt="Rumba Liguria"
@@ -516,12 +807,28 @@ export default function Home() {
               height={40}
               className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-contain flex-shrink-0" />
 
-              <h1 className="text-base sm:text-xl font-bold tracking-tight">
+              <h1 className="text-lg sm:text-2xl font-bold tracking-tight">
                 <span className="text-white">Rumba</span>{" "}
                 <span className="glow-text" style={{ color: a }}>Liguria</span>{" "}
-                <span className="text-gray-400 text-xs sm:text-sm font-normal hidden xs:inline">Events</span>
+                <span className="text-gray-400 text-sm sm:text-base font-normal hidden xs:inline">Events</span>
               </h1>
-            </div>
+            </a>
+
+            {/* Nav links — desktop only */}
+            <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold tracking-wide uppercase text-gray-300">
+              {[
+                { href: "#eventi", label: t(lang, "nav.events") },
+                ...(rentalConfig.enabled && rentalConfig.items.some(i => !i.archived)
+                  ? [{ href: "#noleggio", label: rentalConfig.button_name || t(lang, "nav.rentals") }]
+                  : []),
+                { href: "#gallery", label: t(lang, "nav.gallery") },
+                { href: "#contatti", label: t(lang, "nav.info") },
+              ].map((item) => (
+                <a key={item.href} href={item.href} className="hover:text-white transition-colors">
+                  {item.label}
+                </a>
+              ))}
+            </nav>
 
             <div className="flex items-center gap-1.5 sm:gap-3">
                 {/* Language switcher */}
@@ -558,42 +865,19 @@ export default function Home() {
               }
               </div>
 
-            {/* Social links - hidden on very small screens */}
-            <div className="hidden sm:flex items-center gap-1">
-              <a
-                href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-full hover:bg-white/5 transition-all duration-300 text-gray-400 hover:text-pink-400">
+              <ThemeToggle className="!w-8 !h-8 sm:!w-9 sm:!h-9" />
 
-                <Instagram size={18} />
-              </a>
-              <a
-                href="https://t.me/+l7vvNcE_ZQQyZTQ0"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-full hover:bg-white/5 transition-all duration-300 text-gray-400 hover:text-blue-400">
-
-                <Send size={18} />
-              </a>
-              <a
-                href="https://wa.me/393501863148"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-full hover:bg-white/5 transition-all duration-300 text-gray-400 hover:text-green-400">
-
-                  <MessageCircle size={18} />
-                </a>
-                <a
-                href="/admin"
-                className="p-2 rounded-full hover:bg-white/5 transition-all duration-300 text-gray-400 hover:text-yellow-400"
-                title="Admin Panel">
-
-                  <Shield size={18} />
-                </a>
-              </div>
-
-              <div className="w-px h-5 sm:h-6 bg-white/10" />
+              {hasAdminSession && (
+                <button
+                  onClick={() => router.push("/admin")}
+                  title="Pannello Admin"
+                  aria-label="Pannello Admin"
+                  className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/5 hover:bg-white/10 transition-all text-gray-300 hover:text-white"
+                  style={{ border: `1px solid ${a20}` }}
+                >
+                  <Shield size={15} />
+                </button>
+              )}
 
             {userEmail ?
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -627,61 +911,89 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Mobile social links bar */}
-      <div className="sm:hidden flex items-center justify-center gap-6 py-2 border-b border-white/5 bg-black/50">
-        <a
-          href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-2 text-gray-400 hover:text-pink-400 transition-all">
-
-          <Instagram size={20} />
-        </a>
-        <a
-          href="https://t.me/+l7vvNcE_ZQQyZTQ0"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-2 text-gray-400 hover:text-blue-400 transition-all">
-
-          <Send size={20} />
-        </a>
-        <a
-          href="https://wa.me/393501863148"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-2 text-gray-400 hover:text-green-400 transition-all">
-
-          <MessageCircle size={20} />
-          </a>
-          <a
-          href="/admin"
-          className="p-2 text-gray-400 hover:text-yellow-400 transition-all">
-
-            <Shield size={20} />
-          </a>
-        </div>
-
           {/* Hero */}
-        <section className="relative py-12 sm:py-20 text-center animate-fade-in-up">
-          <div className="max-w-3xl mx-auto px-4">
-              <div className="w-28 h-28 sm:w-40 sm:h-40 mx-auto mb-6 sm:mb-8" style={{ animation: "breathe 3s ease-in-out infinite" }}>
-                    <Image
-              src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=8000&height=8000&resize=contain"
-              alt="Rumba Liguria Events"
-              width={160}
-              height={160}
-              priority
-              className="w-full h-full object-contain" style={{ filter: `drop-shadow(0 0 18px ${a}60)` }} />
-
-            </div>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-3 sm:mb-4 animate-fade-in-up animate-delay-100">
-              <span className="text-white">{t(lang, "hero.title")}</span>{" "}
-              <span className="glow-text" style={{ color: a }}>{t(lang, "hero.subtitle")}</span>
-            </h2>
-            <p className="text-gray-400 text-base sm:text-lg animate-fade-in-up animate-delay-200">
-              {t(lang, "hero.description")}
-            </p>
+        <section
+          className="theme-hero relative min-h-[88dvh] sm:min-h-[92dvh] flex items-center overflow-hidden animate-fade-in-up"
+          onTouchStart={(event) => { heroTouchStart.current = event.touches[0]?.clientX ?? null; }}
+          onTouchEnd={(event) => {
+            const start = heroTouchStart.current;
+            const end = event.changedTouches[0]?.clientX;
+            heroTouchStart.current = null;
+            if (start === null || end === undefined || Math.abs(end - start) < 45) return;
+            moveHeroPhoto(end < start ? 1 : -1);
+          }}
+        >
+          {/* Real crowd photos, rotating automatically with club-light
+              glow and a dark vignette on top so the text stays legible. */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden bg-black">
+            {heroPhotos.map((src, i) => (
+              <Image
+                key={src}
+                src={src}
+                alt=""
+                fill
+                priority={i === 0}
+                sizes="100vw"
+                className="object-cover transition-opacity duration-1000 ease-in-out"
+                style={{ opacity: i === heroPhotoIndex ? 1 : 0 }}
+              />
+            ))}
+            <div className="absolute -top-24 -left-16 w-[280px] sm:w-[480px] h-[280px] sm:h-[480px] rounded-full blur-[90px] sm:blur-[140px] mix-blend-screen" style={{ background: "rgba(139,92,246,0.35)" }} />
+            <div className="absolute top-0 -right-16 w-[320px] sm:w-[560px] h-[320px] sm:h-[560px] rounded-full blur-[90px] sm:blur-[140px] mix-blend-screen" style={{ background: "rgba(236,72,153,0.3)" }} />
+            <div className="absolute bottom-0 left-1/3 w-[320px] sm:w-[520px] h-[200px] sm:h-[320px] rounded-full blur-[90px] sm:blur-[130px] mix-blend-screen" style={{ background: `${a}33` }} />
+            {/* Vignette so text stays legible over the photo */}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.25) 35%, rgba(0,0,0,0.82) 100%)" }} />
+            <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 50%, transparent 80%)" }} />
           </div>
+
+          {heroPhotos.length > 1 && (
+            <div className="absolute z-20 bottom-5 sm:bottom-7 right-4 sm:right-8 flex items-center gap-2">
+              {heroPhotos.map((_, index) => <button key={index} type="button" onClick={() => setHeroPhotoIndex(index)} aria-label={`Mostrar foto ${index + 1}`} className="h-2 rounded-full transition-all" style={{ width: index === heroPhotoIndex ? 24 : 8, background: index === heroPhotoIndex ? a : "rgba(255,255,255,0.55)" }} />)}
+            </div>
+          )}
+
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10 w-full">
+            <div className="max-w-2xl">
+              <p className="flex items-center gap-3 text-xs sm:text-sm font-semibold tracking-[0.3em] mb-4 sm:mb-5 animate-fade-in-up" style={{ color: a }}>
+                <span className="w-8 h-px" style={{ background: a }} />
+                {t(lang, "hero.tagline").toUpperCase()}
+              </p>
+              <h2 className="text-5xl sm:text-7xl md:text-8xl font-extrabold leading-[0.95] tracking-tight mb-5 sm:mb-6 animate-fade-in-up animate-delay-100">
+                <span className="block text-white">RUMBA</span>
+                <span className="block text-gradient-night">LIGURIA</span>
+              </h2>
+              <p className="text-gray-300 text-base sm:text-lg mb-8 sm:mb-10 max-w-md leading-relaxed animate-fade-in-up animate-delay-200">
+                {t(lang, "hero.description")}
+              </p>
+
+              <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-3 animate-fade-in-up animate-delay-300">
+                <a
+                  href="#eventi"
+                  className="btn-shine flex items-center justify-center gap-2 px-7 py-3.5 rounded-full font-semibold text-sm sm:text-base text-white transition-all active:scale-[0.97]"
+                  style={{ background: "linear-gradient(90deg, var(--neon-violet), var(--neon-magenta) 55%, var(--neon-blue))", boxShadow: `0 0 28px ${a}55` }}
+                >
+                  <Calendar size={17} />
+                  {t(lang, "hero.cta.events")}
+                </a>
+                <a
+                  href={`https://wa.me/${WHATSAPP_BOOKING}?text=${encodeURIComponent(t(lang, "hero.bookingMessage"))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-full font-semibold text-sm sm:text-base text-white hover:bg-white/10 transition-all active:scale-[0.97]"
+                  style={{ border: `1px solid ${a}` }}
+                >
+                  <Star size={16} style={{ color: a }} />
+                  {t(lang, "hero.cta.table")}
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Scroll cue */}
+          <a href="#eventi" aria-hidden="true" className="hidden sm:flex absolute bottom-8 left-1/2 -translate-x-1/2 flex-col items-center gap-1.5 text-gray-500 hover:text-gray-300 transition-colors animate-fade-in animate-delay-300">
+            <span className="text-[10px] tracking-[0.2em] uppercase">Scroll</span>
+            <ChevronDown size={16} className="animate-bounce" />
+          </a>
         </section>
 
       {/* Snowflakes */}
@@ -705,8 +1017,88 @@ export default function Home() {
           </div>
       }
 
+      {/* ─── Evento in Evidenza ─── */}
+      {featuredEvent && (
+        <section className="max-w-6xl mx-auto px-3 sm:px-4 pt-6 sm:pt-10 pb-16 sm:pb-20 relative z-10 animate-fade-in-up">
+          <div className="rounded-2xl sm:rounded-3xl overflow-hidden glass-panel" style={{ border: `1px solid ${a30}` }}>
+            <div className="grid lg:grid-cols-[300px_1fr_320px]">
+              {/* Flyer */}
+              {featuredEvent.flyer_url && (
+                <div className="relative h-56 lg:h-auto">
+                  <Image src={featuredEvent.flyer_url} alt={featuredEvent.title} fill sizes="(max-width:1024px) 100vw, 300px" className="object-cover" />
+                  <div className="absolute inset-0 lg:bg-gradient-to-r lg:from-transparent lg:to-[#0a0a12] bg-gradient-to-t from-[#0a0a12] to-transparent" />
+                </div>
+              )}
+
+              {/* Info */}
+              <div className="p-5 sm:p-6 lg:p-7 flex flex-col justify-center lg:border-l lg:border-white/[0.06]">
+                <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.2em] uppercase mb-3" style={{ color: a }}>
+                  <Star size={11} fill={a} /> Evento in Evidenza
+                </span>
+                <h3 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight">{featuredEvent.title}</h3>
+                {featuredEvent.organizer && (
+                  <p className="text-sm sm:text-base font-bold uppercase tracking-wide mb-4" style={{ color: a }}>{featuredEvent.organizer}</p>
+                )}
+
+                <div className="flex flex-col gap-2 text-sm text-gray-300 mb-4">
+                  {featuredEvent.event_date && (
+                    <span className="flex items-center gap-2"><Calendar size={14} style={{ color: a }} className="flex-shrink-0" /> {featuredEvent.event_date}</span>
+                  )}
+                  {(featuredEvent.event_time || featuredEvent.event_time_end) && (
+                    <span className="flex items-center gap-2"><Clock size={14} style={{ color: a }} className="flex-shrink-0" /> {featuredEvent.event_time}{featuredEvent.event_time_end ? ` – ${featuredEvent.event_time_end}` : ""}</span>
+                  )}
+                  <span className="flex items-center gap-2"><MapPin size={14} style={{ color: a }} className="flex-shrink-0" /> Rumba Liguria {featuredEvent.organizer ? `– ${featuredEvent.organizer}` : ""}</span>
+                </div>
+
+                {featuredEvent.dress_code && (
+                  <span className="inline-flex items-center gap-1.5 w-fit px-3 py-1 rounded-full text-xs font-medium text-gray-300" style={{ border: "1px solid rgba(255,255,255,0.15)" }}>
+                    👗 {featuredEvent.dress_code}
+                  </span>
+                )}
+              </div>
+
+              {/* Countdown + CTAs */}
+              <div className="p-5 sm:p-6 lg:p-7 flex flex-col justify-center gap-4 border-t lg:border-t-0 lg:border-l border-white/[0.06]">
+                {featuredCountdown && (
+                  <div className="grid grid-cols-4 gap-2.5">
+                    {[
+                      { v: featuredCountdown.days, l: "Giorni" },
+                      { v: featuredCountdown.hours, l: "Ore" },
+                      { v: featuredCountdown.minutes, l: "Minuti" },
+                      { v: featuredCountdown.seconds, l: "Secondi" },
+                    ].map((c) => (
+                      <div key={c.l} className="text-center py-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="text-lg sm:text-xl font-extrabold" style={{ color: a }}>{String(c.v).padStart(2, "0")}</div>
+                        <div className="text-[8px] uppercase tracking-tight text-gray-500 whitespace-nowrap">{c.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    handleReservation(featuredEvent);
+                    document.getElementById("eventi")?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="btn-shine flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold text-sm text-white transition-all active:scale-[0.97] w-full"
+                  style={{ background: a, boxShadow: `0 0 20px ${a}40` }}
+                >
+                  <Crown size={15} /> {t(lang, "events.bookNow")}
+                </button>
+                <button
+                  onClick={() => setDetailEventId(featuredEvent.id)}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold text-sm text-white border border-white/25 hover:bg-white/5 transition-all active:scale-[0.97] w-full"
+                >
+                  <Info size={15} /> {t(lang, "eventDetail.infoButton")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Events */}
-        <section className="max-w-4xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
+        <section id="eventi" className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10 scroll-mt-20">
         {refPending ?
         <div className="flex justify-center py-16 sm:py-20 animate-fade-in">
               <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
@@ -714,8 +1106,8 @@ export default function Home() {
         linkExpired ?
         <div className="text-center py-16 sm:py-20 animate-fade-in">
               <Calendar size={40} className="mx-auto text-gray-600 mb-4" />
-              <p className="text-gray-500 text-base sm:text-lg">Questo evento non è più disponibile</p>
-              <p className="text-gray-600 text-xs sm:text-sm mt-2">Il link che hai usato è scaduto perché l&apos;evento è terminato.</p>
+              <p className="text-gray-500 text-base sm:text-lg">{t(lang, "events.linkExpiredTitle")}</p>
+              <p className="text-gray-600 text-xs sm:text-sm mt-2">{t(lang, "events.linkExpiredDesc")}</p>
             </div> :
         visibleEvents.length === 0 ?
         <div className="text-center py-16 sm:py-20 animate-fade-in">
@@ -724,355 +1116,489 @@ export default function Home() {
               <p className="text-gray-600 text-xs sm:text-sm mt-2">{t(lang, "events.emptyDesc")}</p>
             </div> :
 
-        <div className="space-y-6 sm:space-y-8">
-                {visibleEvents.map((event) =>
+        // The featured event already gets its own spotlight below ("Evento in
+        // Evidenza") — skip it here so it doesn't show up twice on the page.
+        (() => {
+          const gridEvents = visibleEvents.filter((e) => e.id !== featuredEvent?.id);
+          if (gridEvents.length === 0) {
+            return (
+              <p className="text-center text-gray-600 text-sm py-4">{t(lang, "events.moreComingSoon")}</p>
+            );
+          }
+          return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-6 items-start">
+                {gridEvents.map((event) => {
+          const badge = eventDateBadge(event.event_date_iso);
+          const nowTs = Date.now();
+          const saleCloseTs = event.event_date_iso ? getSaleCloseUTC(event.event_date_iso) : null;
+          const isPast = saleCloseTs ? nowTs >= saleCloseTs : false;
+          const isUpcoming = event.sale_start ? nowTs < new Date(event.sale_start).getTime() : false;
+          const spotsLeft = event.max_tickets == null ? null : Math.max(0, event.max_tickets - (event.tickets_sold ?? event.reservation_total));
+          return (
           <div
             key={event.id}
-            className="rounded-xl sm:rounded-2xl bg-[#0a0a12] glow-border transition-all duration-500 animate-fade-in-up"
+            className="rounded-xl sm:rounded-2xl bg-[#0a0a12] glow-border transition-all duration-500 animate-fade-in-up overflow-hidden"
             style={{ border: `1px solid ${a20}` }}>
 
-                    {/* Flyer */}
+                    {/* Flyer — cropped to a consistent card height (uncropped version
+                        shows in the detail popup) with date/status badges overlaid */}
                     {event.flyer_url &&
-            <div className={`w-full p-3 sm:p-4 pb-0 ${event.flyer_ratio === "9:16" ? "flex justify-center" : ""}`}>
-                        <div
-                className="rounded-xl overflow-hidden flyer-glow"
-                style={{ width: event.flyer_ratio === "9:16" ? "min(100%, 360px)" : "100%" }}>
-                          <img
+            <div className="relative w-full aspect-[4/5] overflow-hidden">
+                        <Image
                   src={event.flyer_url}
                   alt={event.title}
-                  className="w-full h-auto block"
-                  loading="lazy" />
-                        </div>
+                  fill
+                  sizes="(max-width:640px) 100vw, (max-width:1024px) 50vw, 400px"
+                  className="object-cover" />
+                        {badge && (
+                          <div className="absolute top-3 left-3 flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 leading-none">
+                            <span className="text-base font-extrabold text-white">{badge.day}</span>
+                            <span className="text-[9px] font-bold tracking-wide" style={{ color: a }}>{badge.month}</span>
+                          </div>
+                        )}
+                        {event.sold_out ? (
+                          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white bg-red-500/90 backdrop-blur-sm">
+                            SOLD OUT
+                          </span>
+                        ) : isUpcoming ? (
+                          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-white bg-black/70 backdrop-blur-sm border border-white/15">
+                            PROSSIMAMENTE
+                          </span>
+                        ) : isPast ? (
+                          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-gray-300 bg-black/70 backdrop-blur-sm border border-white/15">
+                            TERMINATO
+                          </span>
+                        ) : spotsLeft !== null && spotsLeft <= 15 ? (
+                          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide text-amber-200 bg-black/70 backdrop-blur-sm border border-amber-300/25">
+                            SOLO {spotsLeft} POSTI
+                          </span>
+                        ) : null}
                       </div>
             }
 
-                    {/* Date / Time / Age strip — right below flyer */}
-                    {(event.event_date || event.event_time || event.min_age) &&
-            <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 pt-3">
-                        {event.event_date &&
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
-                            <Calendar size={12} style={{ color: accentColor }} />
-                            {event.event_date}
-                          </span>
-              }
-                        {(event.event_time || event.event_time_end) &&
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
-                            <Clock size={12} style={{ color: accentColor }} />
-                            {event.event_time}{event.event_time_end ? ` – ${event.event_time_end}` : ""}
-                          </span>
-              }
-                        {event.min_age &&
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
-                            <span style={{ color: accentColor }} className="text-[11px] font-bold">+{event.min_age}</span>
-                          </span>
-              }
+                    {/* Event info — compact preview only; full details open in the popup */}
+                    <div className="p-4 text-center">
+                      <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                        <h3 className="text-base font-extrabold text-white leading-tight">{event.title}</h3>
+                        {event.is_popular && <Star size={12} fill="#f59e0b" className="flex-shrink-0" style={{ color: "#f59e0b" }} />}
                       </div>
-            }
+                      {event.organizer && (
+                        <p className="text-xs font-semibold mb-0.5" style={{ color: accentColor }}>{event.organizer}</p>
+                      )}
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-3">Rumba Liguria</p>
+                      {spotsLeft !== null && !event.sold_out && !isPast && !isUpcoming && (
+                        <p className={`mb-3 text-xs font-medium ${spotsLeft <= 15 ? "text-amber-300" : "text-emerald-400"}`}>
+                          {spotsLeft > 15 ? t(lang, "eventDetail.spotsAvailable", { count: spotsLeft }) : t(lang, "eventDetail.lastSpotsAvailable", { count: spotsLeft })}
+                        </p>
+                      )}
 
-                    {/* Event info */}
-                    <div className="p-4 sm:p-6">
-                      {/* Title + POPOLARE */}
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <h3 className="text-xl sm:text-2xl font-bold text-white leading-tight">{event.title}</h3>
-                        {event.is_popular &&
-                <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold border flex-shrink-0 mt-1" style={{ background: "#f59e0b20", color: "#f59e0b", borderColor: "#f59e0b30" }}>
-                            <Star size={9} fill="#f59e0b" /> POPOLARE
-                          </span>
-                }
-                      </div>
-                      {/* Organizer */}
-                      <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
-                        <span>🎤</span> Organizzato da <span style={{ color: accentColor }} className="font-medium ml-1">{event.organizer || "Rumba Liguria"}</span>
-                      </p>
-                      {/* Price + Share */}
-                      <div className="flex items-center gap-2 mb-4">
-                        <span
-                  className="px-2.5 py-1 rounded-full text-xs font-medium"
-                  style={{
-                    background: event.price === "free" || event.price === "Free" || event.price === "Gratis" ? "rgba(34,197,94,0.15)" : `${accentColor}20`,
-                    color: event.price === "free" || event.price === "Free" || event.price === "Gratis" ? "#4ade80" : accentColor,
-                    border: "1px solid",
-                    borderColor: event.price === "free" || event.price === "Free" || event.price === "Gratis" ? "rgba(34,197,94,0.3)" : `${accentColor}40`
-                  }}>
+                      {/* Vedi Evento — opens the popup with full description, reservation, map */}
+                      <button
+                        onClick={() => setDetailEventId(event.id)}
+                        className="w-full py-2.5 rounded-full font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] text-sm text-white hover:bg-white/5"
+                        style={event.sold_out
+                          ? { border: "1px solid rgba(255,255,255,0.25)" }
+                          : { border: `1px solid ${accentColor}` }}
+                      >
+                        {event.sold_out ? "Sold Out" : t(lang, "eventDetail.viewEvent")}
+                      </button>
+                    </div>
+                  </div>
+          );
+                })}
+          </div>
+          );
+        })()}
+        </section>
 
-                          {event.price === "free" || event.price === "Free" ? t(lang, "events.free") : event.price}
-                        </span>
-                        <button
-                  onClick={() => {
-                    const url = window.location.href;
-                    if (navigator.share) {
-                      navigator.share({ title: event.title, url }).catch(() => {
-                        navigator.clipboard.writeText(url).then(() => toast.success("Link copiato!"));
-                      });
-                    } else {
-                      navigator.clipboard.writeText(url).then(() => toast.success("Link copiato!"));
-                    }
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all active:scale-95"
-                  style={{ background: `${accentColor}15`, color: accentColor, borderColor: `${accentColor}40` }}>
+      {/* ─── Event Detail Popup ─── */}
+      {detailEventId && (() => {
+        const detailEvent = visibleEvents.find((e) => e.id === detailEventId);
+        if (!detailEvent) return null;
+        return (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-fade-in"
+            onClick={() => setDetailEventId(null)}
+          >
+            <div
+              className="w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-lg bg-[#0a0a12] sm:rounded-2xl overflow-y-auto glow-border animate-fade-in-up"
+              style={{ border: `1px solid ${a30}` }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setDetailEventId(null)}
+                className="fixed sm:absolute top-3 right-3 z-10 p-2 rounded-full bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              >
+                <X size={18} />
+              </button>
 
-                          <Share2 size={12} />
-                          Condividi
-                        </button>
-                      </div>
+              {/* Flyer */}
+              {detailEvent.flyer_url && (
+                <div className={`w-full ${detailEvent.flyer_ratio === "9:16" ? "flex justify-center bg-black" : ""}`}>
+                  <div style={{ width: detailEvent.flyer_ratio === "9:16" ? "min(100%, 420px)" : "100%" }}>
+                    {(() => {
+                      const [rw, rh] = detailEvent.flyer_ratio === "9:16" ? [900, 1600] : detailEvent.flyer_ratio === "1:1" ? [1000, 1000] : [1600, 900];
+                      return <Image src={detailEvent.flyer_url} alt={detailEvent.title} width={rw} height={rh} sizes="(max-width:640px) 100vw, 560px" className="w-full h-auto block" />;
+                    })()}
+                  </div>
+                </div>
+              )}
 
-                        {event.details &&
-              <div className="mb-4">
-                            {(() => {
-                              const isExpanded = expandedEvents.has(event.id);
-                              const LIMIT = 120;
-                              const needsTruncation = event.details.length > LIMIT;
-                              const displayed = isExpanded || !needsTruncation
-                                ? event.details
-                                : event.details.slice(0, LIMIT).trimEnd() + "…";
-                              return (
-                                <>
-                                  <p className="text-gray-400 leading-relaxed text-sm sm:text-base whitespace-pre-line">
-                                    {displayed}
-                                  </p>
-                                  {needsTruncation && (
-                                    <button
-                                      onClick={() => setExpandedEvents((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(event.id)) next.delete(event.id);
-                                        else next.add(event.id);
-                                        return next;
-                                      })}
-                                      className="text-xs font-semibold mt-1"
-                                      style={{ color: accentColor }}>
-                                      {isExpanded ? "Vedi meno ▲" : "Vedi di più ▼"}
-                                    </button>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>}
+              {/* Date / Time / Age strip */}
+              {(detailEvent.event_date || detailEvent.event_time || detailEvent.min_age) && (
+                <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 pt-4">
+                  {detailEvent.event_date && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
+                      <Calendar size={12} style={{ color: accentColor }} />
+                      {detailEvent.event_date}
+                    </span>
+                  )}
+                  {(detailEvent.event_time || detailEvent.event_time_end) && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
+                      <Clock size={12} style={{ color: accentColor }} />
+                      {detailEvent.event_time}{detailEvent.event_time_end ? ` – ${detailEvent.event_time_end}` : ""}
+                    </span>
+                  )}
+                  {detailEvent.min_age && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
+                      <span style={{ color: accentColor }} className="text-[11px] font-bold">+{detailEvent.min_age}</span>
+                    </span>
+                  )}
+                </div>
+              )}
 
-                      {/* Dress code badge */}
-                      {event.dress_code &&
-              <div className="flex flex-wrap gap-2 mb-4">
-                          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
-                            <span>👗</span> {event.dress_code}
-                          </span>
-                        </div>
-              }
-
-                        {/* Reservation button */}
-                        {(() => {
-                          const now = Date.now();
-                          const saleClose = event.event_date_iso ? getSaleCloseUTC(event.event_date_iso) : null;
-                          const saleClosed = saleClose ? now >= saleClose : false;
-                          const saleNotOpen = event.sale_start ? now < new Date(event.sale_start).getTime() : false;
-                          const bookingClosed = saleClosed || saleNotOpen;
-                          if (bookingClosed) {
-                            return (
-                              <button
-                                disabled
-                                className="w-full py-3 rounded-xl text-gray-500 font-semibold flex items-center justify-center gap-2 cursor-not-allowed text-sm sm:text-base"
-                                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                                <X size={18} />
-                                Prenotazioni chiuse
-                              </button>
-                            );
-                          }
-                          if (event.sold_out) {
-                            return (
-                              <div className="space-y-2">
-                                <div
-                                  className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm sm:text-base tracking-widest"
-                                  style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)", color: "#f87171" }}>
-                                  <X size={18} />
-                                  SOLD OUT
-                                </div>
-                                <a
-                                  href={`https://wa.me/${WHATSAPP_BOOKING}?text=${encodeURIComponent(`Ciao! L'evento "${event.title}" è SOLD OUT. C'è ancora qualche posto disponibile?`)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="w-full py-3 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-300 text-sm sm:text-base"
-                                  style={{ background: "linear-gradient(90deg, #16a34a, #22c55e)", boxShadow: "0 0 20px rgba(34,197,94,0.25)" }}>
-                                  <MessageCircle size={18} />
-                                  Scrivici su WhatsApp
-                                </a>
-                              </div>
-                            );
-                          }
-                          return (
-                            <button
-                              onClick={() => handleReservation(event)}
-                              className="w-full py-3 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-300 text-sm sm:text-base"
-                              style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}cc)`, boxShadow: `0 0 20px ${accentColor}30` }}>
-                              <Users size={18} />
-                              {t(lang, "events.bookNow")}
-                            </button>
-                          );
-                        })()}
-
-                      {/* Reservation panel */}
-                      {reservation && reservation.eventId === event.id &&
-              <div className="overflow-hidden animate-fade-in">
-                          <div className="mt-4 p-4 rounded-xl" style={{ background: `${a}0d`, border: `1px solid ${a30}` }}>
-                            <p className="text-sm text-gray-300 mb-3">{t(lang, "events.howMany")}</p>
-                            {/* Ticket Type Selector */}
-                            {event.ticket_types && event.ticket_types.length > 0 && (
-                              <div className="mb-3">
-                                <label className="text-xs text-gray-400 mb-1.5 block">Tipo di biglietto</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {event.ticket_types.map((tt) => (
-                                    <button
-                                      key={tt.name}
-                                      onClick={() => setReservation((prev) => prev ? { ...prev, ticketType: tt.name } : null)}
-                                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
-                                        reservation.ticketType === tt.name
-                                          ? "text-white border-white/30"
-                                          : "text-gray-400 border-white/10 hover:border-white/20"
-                                      }`}
-                                      style={reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
-                                    >
-                                      <span className="block">{tt.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {(() => {
-                    const spotsLeft = event.max_tickets != null ? event.max_tickets - (event.tickets_sold ?? event.reservation_total) : 999;
-                      const maxAllowed = Math.max(1, event.max_per_person ? Math.min(spotsLeft, event.max_per_person) : spotsLeft);
-                      return (
-                        <div className="flex items-center gap-3 mb-4 justify-center">
-                                  <button
-                          onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.max(1, prev.count - 1) } : null)}
-                          className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15">
-
-                                    -
-                                  </button>
-                                  <span className="text-2xl font-bold w-16 text-center" style={{ color: a }}>
-                                    {reservation.count}
-                                  </span>
-                                  <button
-                          onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.min(maxAllowed, prev.count + 1) } : null)}
-                          disabled={reservation.count >= maxAllowed}
-                          className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed">
-
-                                    +
-                                  </button>
-                                </div>);
-
-                  })()}
-                            <div className="flex gap-2">
-                              <button
-                      onClick={() => setReservation(null)}
-                      className="flex-1 py-2.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm active:bg-white/15">
-
-                                {t(lang, "events.cancel")}
-                              </button>
-                              <button
-                      onClick={() => confirmReservation(event)}
-                      disabled={reserving}
-                      className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50">
-
-                                {reserving ?
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
-
-                      <CheckCircle size={16} />
+              <div className="p-4 sm:p-6">
+                {/* Title + POPOLARE */}
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="text-xl sm:text-2xl font-bold text-white leading-tight">{detailEvent.title}</h3>
+                  {detailEvent.is_popular && (
+                    <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold border flex-shrink-0 mt-1" style={{ background: "#f59e0b20", color: "#f59e0b", borderColor: "#f59e0b30" }}>
+                      <Star size={9} fill="#f59e0b" /> POPOLARE
+                    </span>
+                  )}
+                </div>
+                {/* Organizer */}
+                <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
+                  <span>🎤</span> {t(lang, "eventDetail.organizedBy")} <span style={{ color: accentColor }} className="font-medium ml-1">{detailEvent.organizer || "Rumba Liguria"}</span>
+                </p>
+                {/* Price + Share */}
+                <div className="flex items-center gap-2 mb-4">
+                  <span
+                    className="px-2.5 py-1 rounded-full text-xs font-medium"
+                    style={{
+                      background: detailEvent.price === "free" || detailEvent.price === "Free" || detailEvent.price === "Gratis" ? "rgba(34,197,94,0.15)" : `${accentColor}20`,
+                      color: detailEvent.price === "free" || detailEvent.price === "Free" || detailEvent.price === "Gratis" ? "#4ade80" : accentColor,
+                      border: "1px solid",
+                      borderColor: detailEvent.price === "free" || detailEvent.price === "Free" || detailEvent.price === "Gratis" ? "rgba(34,197,94,0.3)" : `${accentColor}40`
+                    }}
+                  >
+                    {detailEvent.price === "free" || detailEvent.price === "Free" ? t(lang, "events.free") : detailEvent.price}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const url = window.location.href;
+                      if (navigator.share) {
+                        navigator.share({ title: detailEvent.title, url }).catch(() => {
+                          navigator.clipboard.writeText(url).then(() => toast.success(t(lang, "eventDetail.linkCopied")));
+                        });
+                      } else {
+                        navigator.clipboard.writeText(url).then(() => toast.success(t(lang, "eventDetail.linkCopied")));
                       }
-                                {t(lang, "reservation.confirm")}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-              }
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all active:scale-95"
+                    style={{ background: `${accentColor}15`, color: accentColor, borderColor: `${accentColor}40` }}
+                  >
+                    <Share2 size={12} />
+                    {t(lang, "eventDetail.share")}
+                  </button>
+                </div>
 
-                        {/* Google Maps embed — accordion */}
-                        {event.maps_url &&
-                <div className="mt-4 rounded-xl overflow-hidden" style={{ border: `1px solid ${a20}` }}>
-                            {/* Header / toggle */}
-                            <button
-                    className="w-full flex items-center gap-2 px-3 py-3 bg-white/[0.03] active:bg-white/[0.06] transition-all"
-                    onClick={() => setExpandedMaps((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(event.id)) next.delete(event.id);
-                      else next.add(event.id);
-                      return next;
-                    })}>
+                {/* Full description — no truncation, there's room here */}
+                {detailEvent.max_tickets != null && !detailEvent.sold_out && (() => {
+                  const spotsLeft = Math.max(0, detailEvent.max_tickets - (detailEvent.tickets_sold ?? detailEvent.reservation_total));
+                  return <div className={`mb-4 flex items-center justify-between rounded-xl border px-3 py-2.5 ${spotsLeft <= 15 ? "border-amber-400/25 bg-amber-400/10" : "border-emerald-400/20 bg-emerald-400/10"}`}>
+                    <span className="text-xs text-gray-300">{t(lang, "eventDetail.availability")}</span>
+                    <span className={`text-sm font-bold ${spotsLeft <= 15 ? "text-amber-300" : "text-emerald-400"}`}>{t(lang, "eventDetail.spotsLeft", { count: spotsLeft })}</span>
+                  </div>;
+                })()}
+                {detailEvent.details && (
+                  <p className="text-gray-400 leading-relaxed text-sm sm:text-base whitespace-pre-line mb-4">
+                    {detailEvent.details}
+                  </p>
+                )}
 
-                              <MapPin size={14} style={{ color: accentColor }} />
-                              <span className="text-xs text-gray-300 font-medium flex-1 text-left">Come arrivare</span>
-                              <a
-                      href={event.maps_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs px-2 py-0.5 rounded-full mr-2"
-                      style={{ color: accentColor, background: `${accentColor}15`, border: `1px solid ${accentColor}30` }}
-                      onClick={(e) => e.stopPropagation()}>
-                                Apri →
-                              </a>
-                              <span className="text-gray-500 text-xs transition-transform duration-300" style={{ display: "inline-block", transform: expandedMaps.has(event.id) ? "rotate(180deg)" : "rotate(0deg)" }}>
-                                ▼
-                              </span>
-                            </button>
-                            {/* Map iframe — shown/hidden */}
-                            <div style={{ height: expandedMaps.has(event.id) ? 240 : 0, overflow: "hidden", transition: "height 0.35s ease" }}>
-                              <iframe
-                      src={getMapsEmbedUrl(event.maps_url)}
-                      width="100%"
-                      height="240"
-                      style={{ border: 0, display: "block" }}
-                      allowFullScreen
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade" />
-                            </div>
-                          </div>
-                }
+                {/* Dress code badge */}
+                <section className="mb-5 border-t border-white/10 pt-4">
+                  <div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-sm font-bold text-white">{t(lang, "eventDetail.testimonialsTitle")}</h4><span className="text-xs text-gray-500">{t(lang, "eventDetail.commentsCount", { count: eventComments.length })}</span></div>
+                  {commentsLoading ? <div className="h-12 animate-pulse rounded-xl bg-white/5" /> : eventComments.length > 0 ? (
+                    <div className="mb-3 max-h-36 space-y-2 overflow-y-auto pr-1">
+                      {eventComments.map((comment) => <div key={comment.id} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"><p className="mb-1 text-xs font-semibold" style={{ color: accentColor }}>{comment.user_email.split("@")[0]}</p><p className="text-xs leading-relaxed text-gray-300">{comment.content}</p></div>)}
+                    </div>
+                  ) : <p className="mb-3 text-xs text-gray-500">{t(lang, "eventDetail.noCommentsYet")}</p>}
+                  {userEmail ? <div className="flex gap-2"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && submitEventComment()} maxLength={280} placeholder={t(lang, "eventDetail.commentPlaceholder")} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/30" /><button type="button" onClick={submitEventComment} disabled={!commentDraft.trim() || commentSending} className="rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style={{ background: accentColor }}>{commentSending ? "…" : t(lang, "events.send")}</button></div> : <p className="text-xs text-gray-500">{t(lang, "eventDetail.loginToComment")}</p>}
+                </section>
+                {detailEvent.dress_code && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
+                      <span>👗</span> {detailEvent.dress_code}
+                    </span>
+                  </div>
+                )}
 
-                      {/* How to get there - transport */}
-                      <div className="mt-4 p-3 rounded-xl bg-white/[0.03] border border-white/5">
-                        <p className="text-xs text-gray-500 mb-2.5 font-medium uppercase tracking-wide">Come puoi venire</p>
-                          <div className="grid grid-cols-4 gap-2">
-                            {[
-                  { icon: Train, label: "Treno", color: "#3b82f6", travelmode: "transit" },
-                  { icon: Car, label: "Auto", color: "#10b981", travelmode: "driving" },
-                  { icon: Bike, label: "Bici", color: "#f59e0b", travelmode: "bicycling" },
-                  { icon: PersonStanding, label: "A piedi", color: "#ec4899", travelmode: "walking" }].
-                  map(({ icon: Icon, label, color, travelmode }) => {
-                    const dest = event.maps_url ?
-                    (() => {
-                      const coordMatch = event.maps_url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-                      const qMatch = event.maps_url.match(/[?&]q=([^&]+)/);
-                      const placeMatch = event.maps_url.match(/\/maps\/place\/([^/@?]+)/);
-                      if (coordMatch) return `${coordMatch[1]},${coordMatch[2]}`;
-                      if (qMatch) return decodeURIComponent(qMatch[1]);
-                      if (placeMatch) return decodeURIComponent(placeMatch[1]);
-                      return event.maps_url;
-                    })() :
-                    null;
-                    const href = dest ?
-                    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=${travelmode}` :
-                    null;
-                    const Wrapper = href ? "a" : "div";
+                {/* Reservation button */}
+                {(() => {
+                  const now = Date.now();
+                  const saleClose = detailEvent.event_date_iso ? getSaleCloseUTC(detailEvent.event_date_iso) : null;
+                  const saleClosed = saleClose ? now >= saleClose : false;
+                  const saleNotOpen = detailEvent.sale_start ? now < new Date(detailEvent.sale_start).getTime() : false;
+                  const bookingClosed = saleClosed || saleNotOpen;
+                  if (bookingClosed) {
                     return (
-                      <Wrapper
-                        key={label}
-                        {...href ? { href, target: "_blank", rel: "noopener noreferrer" } : {}}
-                        className={`flex flex-col items-center gap-1.5 p-2 rounded-lg bg-white/5 border border-white/5 transition-all duration-200${href ? " cursor-pointer hover:bg-white/10 active:scale-95" : ""}`}>
-
-                                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: `${color}20` }}>
-                                  <Icon size={16} style={{ color }} />
-                                </div>
-                                <span className="text-[10px] text-gray-400">{label}</span>
-                              </Wrapper>);
-                  })}
+                      <button
+                        disabled
+                        className="w-full py-3 rounded-xl text-gray-500 font-semibold flex items-center justify-center gap-2 cursor-not-allowed text-sm sm:text-base"
+                        style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                      >
+                        <X size={18} />
+                        {t(lang, "eventDetail.bookingClosed")}
+                      </button>
+                    );
+                  }
+                  if (detailEvent.sold_out) {
+                    return (
+                      <div className="space-y-2">
+                        <div
+                          className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm sm:text-base tracking-widest"
+                          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.4)", color: "#f87171" }}
+                        >
+                          <X size={18} />
+                          SOLD OUT
                         </div>
+                        <a
+                          href={`https://wa.me/${WHATSAPP_BOOKING}?text=${encodeURIComponent(t(lang, "eventDetail.soldOutWhatsappMessage", { title: detailEvent.title }))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full py-3 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-300 text-sm sm:text-base"
+                          style={{ background: "linear-gradient(90deg, #16a34a, #22c55e)", boxShadow: "0 0 20px rgba(34,197,94,0.25)" }}
+                        >
+                          <MessageCircle size={18} />
+                          {t(lang, "eventDetail.messageUsWhatsapp")}
+                        </a>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      onClick={() => handleReservation(detailEvent)}
+                      className="w-full py-3 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all duration-300 text-sm sm:text-base"
+                      style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}cc)`, boxShadow: `0 0 20px ${accentColor}30` }}
+                    >
+                      <Users size={18} />
+                      {t(lang, "events.bookNow")}
+                    </button>
+                  );
+                })()}
+
+                {/* Reservation panel */}
+                {reservation && reservation.eventId === detailEvent.id && (
+                  <div className="overflow-hidden animate-fade-in">
+                    <div className="mt-4 p-4 rounded-xl" style={{ background: `${a}0d`, border: `1px solid ${a30}` }}>
+                      <p className="text-sm text-gray-300 mb-3">{t(lang, "events.howMany")}</p>
+                      {/* Ticket Type Selector */}
+                      {detailEvent.ticket_types && detailEvent.ticket_types.length > 0 && (
+                        <div className="mb-3">
+                          <label className="text-xs text-gray-400 mb-1.5 block">{t(lang, "eventDetail.ticketType")}</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {detailEvent.ticket_types.map((tt) => (
+                              <button
+                                key={tt.name}
+                                onClick={() => setReservation((prev) => prev ? { ...prev, ticketType: tt.name } : null)}
+                                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                                  reservation.ticketType === tt.name
+                                    ? "text-white border-white/30"
+                                    : "text-gray-400 border-white/10 hover:border-white/20"
+                                }`}
+                                style={reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
+                              >
+                                <span className="block">{tt.name}</span>
+                                <span className="block text-[10px] opacity-70 mt-0.5">
+                                  {tt.price ? `€${tt.price.toFixed(2).replace(/\.00$/, "")}` : t(lang, "events.free")}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {(() => {
+                        const spotsLeft = detailEvent.max_tickets != null ? detailEvent.max_tickets - (detailEvent.tickets_sold ?? detailEvent.reservation_total) : 999;
+                        const maxAllowed = Math.max(1, detailEvent.max_per_person ? Math.min(spotsLeft, detailEvent.max_per_person) : spotsLeft);
+                        return (
+                          <div className="flex items-center gap-3 mb-4 justify-center">
+                            <button
+                              onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.max(1, prev.count - 1) } : null)}
+                              className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15"
+                            >
+                              -
+                            </button>
+                            <span className="text-2xl font-bold w-16 text-center" style={{ color: a }}>
+                              {reservation.count}
+                            </span>
+                            <button
+                              onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.min(maxAllowed, prev.count + 1) } : null)}
+                              disabled={reservation.count >= maxAllowed}
+                              className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          </div>
+                        );
+                      })()}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setReservation(null)}
+                          className="flex-1 py-2.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm active:bg-white/15"
+                        >
+                          {t(lang, "events.cancel")}
+                        </button>
+                        <button
+                          onClick={() => confirmReservation(detailEvent)}
+                          disabled={reserving}
+                          className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50"
+                        >
+                          {reserving ? (
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <CheckCircle size={16} />
+                          )}
+                          {(() => {
+                            const selectedType = detailEvent.ticket_types?.find(tt => tt.name === reservation.ticketType);
+                            if (selectedType?.price) {
+                              return `Paga €${(selectedType.price * reservation.count).toFixed(2).replace(/\.00$/, "")}`;
+                            }
+                            return t(lang, "reservation.confirm");
+                          })()}
+                        </button>
                       </div>
                     </div>
                   </div>
-          )}
+                )}
+
+                {/* Google Maps embed — accordion */}
+                {detailEvent.maps_url && (
+                  <div className="mt-4 rounded-xl overflow-hidden" style={{ border: `1px solid ${a20}` }}>
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-3 bg-white/[0.03] active:bg-white/[0.06] transition-all"
+                      onClick={() => setExpandedMaps((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(detailEvent.id)) next.delete(detailEvent.id);
+                        else next.add(detailEvent.id);
+                        return next;
+                      })}
+                    >
+                      <MapPin size={14} style={{ color: accentColor }} />
+                      <span className="text-xs text-gray-300 font-medium flex-1 text-left">{t(lang, "location.howToGetThere")}</span>
+                      <a
+                        href={detailEvent.maps_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs px-2 py-0.5 rounded-full mr-2"
+                        style={{ color: accentColor, background: `${accentColor}15`, border: `1px solid ${accentColor}30` }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {t(lang, "location.openMaps")} →
+                      </a>
+                      <span className="text-gray-500 text-xs transition-transform duration-300" style={{ display: "inline-block", transform: expandedMaps.has(detailEvent.id) ? "rotate(180deg)" : "rotate(0deg)" }}>
+                        ▼
+                      </span>
+                    </button>
+                    <div style={{ height: expandedMaps.has(detailEvent.id) ? 240 : 0, overflow: "hidden", transition: "height 0.35s ease" }}>
+                      <iframe
+                        src={getMapsEmbedUrl(detailEvent.maps_url)}
+                        width="100%"
+                        height="240"
+                        style={{ border: 0, display: "block" }}
+                        allowFullScreen
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* How to get there - transport */}
+                <div className="mt-4 p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                  <p className="text-xs text-gray-500 mb-2.5 font-medium uppercase tracking-wide">{t(lang, "location.howToComeHeading")}</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { icon: Train, label: t(lang, "location.train"), color: "#3b82f6", travelmode: "transit" },
+                      { icon: Car, label: t(lang, "location.car"), color: "#10b981", travelmode: "driving" },
+                      { icon: Bike, label: t(lang, "location.bike"), color: "#f59e0b", travelmode: "bicycling" },
+                      { icon: PersonStanding, label: t(lang, "location.walking"), color: "#ec4899", travelmode: "walking" },
+                    ].map(({ icon: Icon, label, color, travelmode }) => {
+                      const dest = detailEvent.maps_url
+                        ? (() => {
+                            const url = detailEvent.maps_url!;
+                            const coordMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                            const qMatch = url.match(/[?&]q=([^&]+)/);
+                            const placeMatch = url.match(/\/maps\/place\/([^/@?]+)/);
+                            if (coordMatch) return `${coordMatch[1]},${coordMatch[2]}`;
+                            if (qMatch) return decodeURIComponent(qMatch[1]);
+                            if (placeMatch) return decodeURIComponent(placeMatch[1]);
+                            return url;
+                          })()
+                        : null;
+                      const href = dest
+                        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=${travelmode}`
+                        : null;
+                      const Wrapper = href ? "a" : "div";
+                      return (
+                        <Wrapper
+                          key={label}
+                          {...(href ? { href, target: "_blank", rel: "noopener noreferrer" } : {})}
+                          className={`flex flex-col items-center gap-1.5 p-2 rounded-lg bg-white/5 border border-white/5 transition-all duration-200${href ? " cursor-pointer hover:bg-white/10 active:scale-95" : ""}`}
+                        >
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: `${color}20` }}>
+                            <Icon size={16} style={{ color }} />
+                          </div>
+                          <span className="text-[10px] text-gray-400">{label}</span>
+                        </Wrapper>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        }
-        </section>
+        );
+      })()}
+
+      {/* ─── L'Esperienza Rumba Liguria ─── */}
+      <section className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
+        <h2 className="section-title text-2xl sm:text-4xl text-white text-center mb-8 sm:mb-10 animate-fade-in-up">
+          {t(lang, "experience.titlePrefix")} <span className="text-gradient-night">Rumba Liguria</span>
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          {[
+            { icon: Star, label: t(lang, "experience.exclusiveEvents.title"), desc: t(lang, "experience.exclusiveEvents.desc") },
+            { icon: Users, label: t(lang, "experience.vipTables.title"), desc: t(lang, "experience.vipTables.desc") },
+            { icon: MessageCircle, label: t(lang, "experience.premiumCocktails.title"), desc: t(lang, "experience.premiumCocktails.desc") },
+            { icon: QrCode, label: t(lang, "experience.uniqueAtmosphere.title"), desc: t(lang, "experience.uniqueAtmosphere.desc") },
+            { icon: Shield, label: t(lang, "experience.security.title"), desc: t(lang, "experience.security.desc") },
+          ].map((f) => (
+            <div key={f.label} className="p-4 rounded-xl bg-[#0a0a12] border border-white/5 text-center hover:border-white/15 transition-all">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-full flex items-center justify-center" style={{ background: `${a}18` }}>
+                <f.icon size={18} style={{ color: a }} />
+              </div>
+              <h3 className="text-sm font-bold text-white mb-1.5">{f.label}</h3>
+              <p className="text-xs sm:text-sm text-gray-500 leading-snug">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ─── Noleggio Attrezzatura Section (compact) ─── */}
       {rentalConfig.enabled && rentalConfig.items.filter(i => !i.archived).length > 0 && (
-        <section className="max-w-5xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
+        <section id="noleggio" className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10 scroll-mt-20">
           {(() => {
             const activeItems = rentalConfig.items.filter(i => !i.archived);
             return (
@@ -1085,7 +1611,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-white">{rentalConfig.section_name}</h2>
-                  <p className="text-xs text-gray-500">{activeItems.filter(i => i.available).length} equipaggiamenti disponibili</p>
+                  <p className="text-xs text-gray-500">{t(lang, "rental.equipmentAvailable", { count: activeItems.filter(i => i.available).length })}</p>
                 </div>
               </div>
               <button
@@ -1094,7 +1620,7 @@ export default function Home() {
                 style={{ background: `${a}18`, color: a, border: `1px solid ${a}30` }}
               >
                 <ChevronDown size={15} />
-                Ver más
+                {rentalConfig.button_name || t(lang, "rental.viewMore")}
               </button>
             </div>
             {/* Preview strip */}
@@ -1107,7 +1633,7 @@ export default function Home() {
                 >
                   <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-white/10 group-hover:border-white/30 transition-all">
                     {item.photos[0]
-                      ? <img src={item.photos[0]} alt={item.name} className="w-full h-full object-cover" />
+                      ? <Image src={item.photos[0]} alt={item.name} fill sizes="96px" className="object-cover" />
                       : <div className="w-full h-full bg-white/5 flex items-center justify-center"><Package size={20} className="text-gray-600" /></div>
                     }
                     {!item.available && <div className="absolute inset-0 bg-black/60" />}
@@ -1120,7 +1646,7 @@ export default function Home() {
                   <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-white/10 bg-white/3 flex items-center justify-center">
                     <span className="text-sm font-bold text-gray-400">+{activeItems.length - 6}</span>
                   </div>
-                  <p className="text-[10px] text-gray-500">altri</p>
+                  <p className="text-[10px] text-gray-500">{t(lang, "rental.others")}</p>
                 </button>
               )}
             </div>
@@ -1139,7 +1665,7 @@ export default function Home() {
               {rentalModalItem ? (
                 <button onClick={() => { setRentalModalItem(null); setRentalPhotoIndex(0); }} className="flex items-center gap-2 text-gray-400 hover:text-white transition-all">
                   <ChevronDown size={16} className="rotate-90" />
-                  <span className="text-sm">Indietro</span>
+                  <span className="text-sm">{t(lang, "rental.back")}</span>
                 </button>
               ) : (
                 <div className="flex items-center gap-2">
@@ -1161,15 +1687,15 @@ export default function Home() {
                   {rentalModalItem.photos.length > 0 && (
                     <div className="space-y-2">
                       <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
-                        <img src={rentalModalItem.photos[rentalPhotoIndex]} alt={rentalModalItem.name} className="w-full h-full object-cover" />
+                        <Image src={rentalModalItem.photos[rentalPhotoIndex]} alt={rentalModalItem.name} fill sizes="(max-width:640px) 100vw, 480px" className="object-cover" />
                         {!rentalModalItem.available && (
                           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                            <span className="text-sm text-gray-300 font-medium bg-black/50 px-4 py-1.5 rounded-full">Non disponibile</span>
+                            <span className="text-sm text-gray-300 font-medium bg-black/50 px-4 py-1.5 rounded-full">{t(lang, "rental.notAvailable")}</span>
                           </div>
                         )}
                         {rentalModalItem.available && (
                           <div className="absolute top-2 right-2">
-                            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">Disponibile</span>
+                            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">{t(lang, "rental.available")}</span>
                           </div>
                         )}
                       </div>
@@ -1177,8 +1703,8 @@ export default function Home() {
                         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
                           {rentalModalItem.photos.map((url, i) => (
                             <button key={i} onClick={() => setRentalPhotoIndex(i)}
-                              className={`flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all ${rentalPhotoIndex === i ? "border-blue-400" : "border-white/10 opacity-60 hover:opacity-100"}`}>
-                              <img src={url} alt="" className="w-full h-full object-cover" />
+                              className={`relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all ${rentalPhotoIndex === i ? "border-blue-400" : "border-white/10 opacity-60 hover:opacity-100"}`}>
+                              <Image src={url} alt="" fill sizes="56px" className="object-cover" />
                             </button>
                           ))}
                         </div>
@@ -1195,17 +1721,17 @@ export default function Home() {
                   </div>
                   <div className="flex flex-col gap-2 pt-2">
                     {rentalModalItem.contact_phone && (
-                      <a href={`https://wa.me/${rentalModalItem.contact_phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(`Ciao! Sono interessato/a al noleggio di: ${rentalModalItem.name}`)}`}
+                      <a href={`https://wa.me/${rentalModalItem.contact_phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(t(lang, "rental.whatsappMessage", { name: rentalModalItem.name }))}`}
                         target="_blank" rel="noopener noreferrer"
                         className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-all active:scale-95"
                         style={{ background: `${a}18`, color: a, border: `1px solid ${a}30` }}>
-                        <Phone size={16} /> Contatta su WhatsApp
+                        <Phone size={16} /> {t(lang, "rental.contactWhatsapp")}
                       </a>
                     )}
                     {rentalModalItem.contact_email && (
-                      <a href={`mailto:${rentalModalItem.contact_email}?subject=${encodeURIComponent(`Richiesta noleggio: ${rentalModalItem.name}`)}`}
+                      <a href={`mailto:${rentalModalItem.contact_email}?subject=${encodeURIComponent(t(lang, "rental.emailSubject", { name: rentalModalItem.name }))}`}
                         className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
-                        <Mail size={16} /> Invia Email
+                        <Mail size={16} /> {t(lang, "rental.sendEmail")}
                       </a>
                     )}
                   </div>
@@ -1218,12 +1744,12 @@ export default function Home() {
                       className={`text-left rounded-xl overflow-hidden border transition-all active:scale-[0.97] ${item.available ? "border-white/10 hover:border-white/25 bg-[#0a0a12]" : "border-white/5 bg-[#0a0a12] opacity-60"}`}>
                       <div className="relative w-full aspect-square">
                         {item.photos[0]
-                          ? <img src={item.photos[0]} alt={item.name} className="w-full h-full object-cover" />
+                          ? <Image src={item.photos[0]} alt={item.name} fill sizes="(max-width:640px) 50vw, 200px" className="object-cover" />
                           : <div className="w-full h-full bg-white/5 flex items-center justify-center"><Package size={24} className="text-gray-600" /></div>
                         }
                         {item.available
                           ? <div className="absolute top-1.5 right-1.5"><span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">✓</span></div>
-                          : <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><span className="text-[10px] text-gray-400 bg-black/60 px-2 py-0.5 rounded-full">Non disp.</span></div>
+                          : <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><span className="text-[10px] text-gray-400 bg-black/60 px-2 py-0.5 rounded-full">{t(lang, "rental.notAvailableShort")}</span></div>
                         }
                       </div>
                       <div className="p-2">
@@ -1240,58 +1766,62 @@ export default function Home() {
       )}
 
       {/* 1 Year Anniversary + Gallery */}
-      <section className="max-w-5xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
+      <section id="gallery" className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10 scroll-mt-20">
         {/* Anniversary banner */}
         <div className="text-center mb-10 sm:mb-14 animate-fade-in-up">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-semibold uppercase tracking-widest mb-4">
-            <span>⭐</span> Eventi by Rumba Liguria <span>⭐</span>
+            <span>⭐</span> {t(lang, "gallery.eventsBy")} <span>⭐</span>
           </div>
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3">
-              <span className="glow-text" style={{ color: a }}>Eventi by Rumba Liguria</span>
+              <span className="glow-text" style={{ color: a }}>{t(lang, "gallery.eventsBy")}</span>
             </h2>
           <p className="text-gray-400 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-            Con noi troverai la migliore musica e le serate più calde in Liguria. Grazie a tutti voi que avete ballato, cantato e vissuto con noi ogni momento. Ti aspettiamo!
+            {t(lang, "gallery.description")}
           </p>
         </div>
 
-        {/* Photo/Video grid — dynamic from DB */}
+        {/* Photo/Video grid — dynamic from DB. Capped to a preview count so the
+            page doesn't keep growing taller forever as more photos get added
+            in the admin panel; "Vedi tutte" expands the rest on demand. */}
         {gallery.length === 0 ? (
-          <div className="text-center py-10 text-gray-600 text-sm">Nessun contenuto in galleria</div>
+          <div className="text-center py-10 text-gray-600 text-sm">{t(lang, "gallery.empty")}</div>
         ) : (
-          <div className="columns-2 sm:columns-3 gap-2 sm:gap-3 space-y-2 sm:space-y-3">
-            {gallery.map((item, i) => (
-              <div
-                key={item.id}
-                className="break-inside-avoid rounded-xl overflow-hidden border border-white/5 hover:border-blue-500/30 transition-all duration-300 cursor-pointer group relative"
-                onClick={() => item.type === "image" ? setLightboxImg(item.url) : undefined}
-              >
-                {item.type === "video" ? (
-                  <>
-                    <video
-                      src={item.url}
-                      className="w-full h-auto object-cover"
-                      playsInline
-                      muted
-                      loop
-                      autoPlay
-                      preload="metadata"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="white"><polygon points="4,2 14,8 4,14"/></svg>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <img
-                    src={item.url}
-                    alt={`Rumba Liguria evento ${i + 1}`}
-                    className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-500"
-                    loading="lazy"
-                  />
-                )}
+          <div className="max-w-4xl mx-auto">
+            <div
+              className="relative aspect-[4/5] sm:aspect-[16/10] overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl touch-pan-y"
+              onTouchStart={(event) => { galleryTouchStart.current = event.touches[0].clientX; }}
+              onTouchEnd={(event) => {
+                const start = galleryTouchStart.current;
+                galleryTouchStart.current = null;
+                if (start === null) return;
+                const distance = event.changedTouches[0].clientX - start;
+                if (Math.abs(distance) > 45) moveGallery(distance < 0 ? 1 : -1);
+              }}
+            >
+              {gallery.map((item, index) => (
+                <div key={item.id} aria-hidden={index !== galleryIndex} className={`absolute inset-0 transition-all duration-700 ease-out ${index === galleryIndex ? "opacity-100 scale-100" : "pointer-events-none opacity-0 scale-[1.02]"}`}>
+                  {item.type === "video" ? (
+                    <video src={item.url} className="w-full h-full object-cover" playsInline muted loop autoPlay={index === galleryIndex} preload="metadata" />
+                  ) : (
+                    <button type="button" className="relative w-full h-full cursor-zoom-in" onClick={() => setLightboxImg(item.url)} aria-label={`Apri foto ${index + 1} di ${gallery.length}`}>
+                      <Image src={item.url} alt={`Rumba Liguria evento ${index + 1}`} fill priority={index === 0} sizes="(max-width:768px) 100vw, 768px" className="object-cover" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {gallery.length > 1 && <>
+                <button type="button" onClick={() => moveGallery(-1)} aria-label="Foto precedente" className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-sm transition hover:bg-black/75 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"><ChevronLeft size={22} /></button>
+                <button type="button" onClick={() => moveGallery(1)} aria-label="Foto successiva" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-sm transition hover:bg-black/75 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"><ChevronRight size={22} /></button>
+              </>}
+              <div className="absolute bottom-4 left-1/2 flex max-w-[75%] -translate-x-1/2 gap-2 rounded-full bg-black/35 px-3 py-2 backdrop-blur-sm">
+                {gallery.map((item, index) => <button key={item.id} type="button" onClick={() => setGalleryIndex(index)} aria-label={`Mostrar contenido ${index + 1}`} aria-current={index === galleryIndex} className={`h-2 rounded-full transition-all ${index === galleryIndex ? "w-6 bg-white" : "w-2 bg-white/55 hover:bg-white/80"}`} />)}
               </div>
-            ))}
+              <div className="absolute right-4 top-4 rounded-full bg-black/45 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur-sm">{galleryIndex + 1} / {gallery.length}</div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-gray-500">
+              <span>{t(lang, "gallery.tapToView")}</span>
+              <a href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold transition-opacity hover:opacity-75" style={{ color: accentColor }}><Instagram size={13} /> {t(lang, "gallery.seeMoreInstagram")}</a>
+            </div>
           </div>
         )}
       </section>
@@ -1303,11 +1833,11 @@ export default function Home() {
               <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-500/10 mx-auto mb-4">
                 <XCircle size={28} className="text-red-400" />
               </div>
-              <h3 className="text-lg font-bold text-white text-center mb-2">Prenotazione Cancellata</h3>
+              <h3 className="text-lg font-bold text-white text-center mb-2">{t(lang, "cancelledAlert.title")}</h3>
               <p className="text-sm text-gray-400 text-center mb-4">
                 {cancelledReservations.length === 1 ?
-            <>La tua prenotazione per <span className="text-white font-medium">{cancelledReservations[0].eventTitle}</span> è stata cancellata dall&apos;organizzatore.</> :
-            <>Alcune tue prenotaciones sono state cancellate dall&apos;organizzatore.</>
+            <>{t(lang, "cancelledAlert.singleBefore")} <span className="text-white font-medium">{cancelledReservations[0].eventTitle}</span> {t(lang, "cancelledAlert.singleAfter")}</> :
+            <>{t(lang, "cancelledAlert.multiple")}</>
             }
               </p>
               <div className="space-y-2 mb-5">
@@ -1330,7 +1860,7 @@ export default function Home() {
               }}
               className="w-full py-3 rounded-xl bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-all font-medium text-sm">
 
-                Ho capito
+                {t(lang, "cancelledAlert.acknowledge")}
               </button>
             </div>
           </div>
@@ -1348,65 +1878,96 @@ export default function Home() {
 
             <X size={22} />
           </button>
-          <img
+          <Image
           src={lightboxImg}
           alt="Foto evento"
-          className="max-w-full max-h-[90vh] rounded-xl object-contain animate-fade-in-up"
+          width={0}
+          height={0}
+          sizes="100vw"
+          className="w-auto h-auto max-w-full max-h-[90vh] rounded-xl object-contain animate-fade-in-up"
           onClick={(e) => e.stopPropagation()} />
 
         </div>
       }
 
+
       {/* Footer */}
-      <footer className="bg-black/50 backdrop-blur-sm" style={{ borderTop: `1px solid ${a20}` }}>
-        <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
-          <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-            <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: `linear-gradient(135deg, ${a}, ${a}bb)` }}>
-                  R
-                </div>
-              <span className="text-sm text-gray-400">Rumba Liguria Events</span>
+      <footer className="relative z-10" style={{ borderTop: `1px solid ${a20}` }}>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 sm:gap-6 mb-10">
+            {/* Logo + tagline + socials */}
+            <div className="col-span-2 lg:col-span-1">
+              <div className="flex items-center gap-2 mb-3">
+                <Image
+                  src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=8000&height=8000&resize=contain"
+                  alt="Rumba Liguria"
+                  width={32}
+                  height={32}
+                  className="w-8 h-8 rounded-full object-contain flex-shrink-0"
+                />
+                <span className="text-base font-bold">
+                  <span className="text-white">Rumba</span> <span style={{ color: a }}>Liguria</span>
+                </span>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">{t(lang, "hero.tagline")}</p>
+              <p className="text-xs font-bold tracking-[0.16em] mb-2" style={{ color: a }}>{t(lang, "footer.followUs")}</p>
+              <div className="flex items-center gap-2">
+                <a href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1" target="_blank" rel="noopener noreferrer" aria-label="Instagram de Rumba Liguria" className="p-2 rounded-lg bg-white/5 text-gray-500 hover:text-pink-400 hover:bg-pink-400/10 transition-all"><Instagram size={19} /></a>
+                <a href="https://t.me/+l7vvNcE_ZQQyZTQ0" target="_blank" rel="noopener noreferrer" aria-label="Telegram de Rumba Liguria" className="p-2 rounded-lg bg-white/5 text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-all"><Send size={19} /></a>
+                <a href="https://wa.me/393501863148" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp de Rumba Liguria" className="p-2 rounded-lg bg-white/5 text-gray-500 hover:text-green-400 hover:bg-green-400/10 transition-all"><MessageCircle size={19} /></a>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <a
-                href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-500 hover:text-pink-400 transition-all">
-
-                <Instagram size={18} />
-              </a>
-              <a
-                href="https://t.me/+l7vvNcE_ZQQyZTQ0"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-500 hover:text-blue-400 transition-all">
-
-                <Send size={18} />
-              </a>
-              <a
-                href="https://wa.me/393501863148"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-500 hover:text-green-400 transition-all">
-
-                <MessageCircle size={18} />
-              </a>
+            {/* Navigazione */}
+            <div>
+              <h4 className="text-sm font-bold tracking-widest mb-3" style={{ color: a }}>{t(lang, "footer.navigation")}</h4>
+              <ul className="space-y-2 text-sm text-gray-400">
+                {[
+                  { href: "#eventi", label: t(lang, "nav.events") },
+                  ...(rentalConfig.enabled && rentalConfig.items.some(i => !i.archived)
+                    ? [{ href: "#noleggio", label: rentalConfig.button_name || t(lang, "nav.rentals") }]
+                    : []),
+                  { href: "#gallery", label: t(lang, "nav.gallery") },
+                ].map((l) => (
+                  <li key={l.href}><a href={l.href} className="hover:text-white transition-colors">{l.label}</a></li>
+                ))}
+              </ul>
             </div>
 
-              <p className="text-xs text-gray-600">
-                {t(lang, "footer.createdBy")}{" "}
-                <a
-                href="https://wa.me/393478275119"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:text-blue-400 transition-all">
+            {/* Contatti */}
+            <div id="contatti" className="scroll-mt-20">
+              <h4 className="text-sm font-bold tracking-widest mb-3" style={{ color: a }}>{t(lang, "footer.contact")}</h4>
+              <ul className="space-y-2.5 text-sm text-gray-400">
+                <li className="flex items-start gap-2"><MessageCircle size={13} className="mt-0.5 flex-shrink-0" style={{ color: a }} />
+                  <a href={`https://wa.me/${WHATSAPP_BOOKING}`} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">+39 350 186 3148</a>
+                </li>
+                <li className="flex items-start gap-2"><Instagram size={13} className="mt-0.5 flex-shrink-0" style={{ color: a }} />
+                  <a href="https://www.instagram.com/rumba_liguria?igsh=ZmwzYWZ6NDl5NmQ1" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">@rumba_liguria</a>
+                </li>
+                <li className="flex items-start gap-2"><Send size={13} className="mt-0.5 flex-shrink-0" style={{ color: a }} />
+                  <a href="https://t.me/+l7vvNcE_ZQQyZTQ0" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">{t(lang, "footer.telegramChannel")}</a>
+                </li>
+              </ul>
+            </div>
 
-                  Tokkyo&apos;s
-                </a>
-              </p>
+            {/* Info / Admin */}
+            <div>
+              <h4 className="text-sm font-bold tracking-widest mb-3" style={{ color: a }}>{t(lang, "footer.info")}</h4>
+              <ul className="space-y-2 text-sm text-gray-400">
+                <li><a href="#eventi" className="hover:text-white transition-colors">{t(lang, "footer.howToBook")}</a></li>
+                <li><a href={`https://wa.me/${WHATSAPP_BOOKING}`} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">{t(lang, "footer.support")}</a></li>
+              </ul>
+            </div>
+          </div>
 
+          <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600" style={{ borderTop: `1px solid ${a10}` }}>
+            <p>© {new Date().getFullYear()} Rumba Liguria Events. {t(lang, "footer.rights")}</p>
+            <p>
+              {t(lang, "footer.createdBy")}{" "}
+              <a href="https://wa.me/393478275119" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-400 transition-all">
+                Tokkyo&apos;s
+              </a>
+            </p>
           </div>
         </div>
       </footer>
@@ -1460,14 +2021,16 @@ export default function Home() {
                         >
                           <div className="flex items-start gap-3">
                             {res.events?.flyer_url && (
-                              <img
+                              <Image
                                 src={res.events.flyer_url}
                                 alt={res.events.title}
+                                width={64}
+                                height={64}
                                 className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
                               />
                             )}
                             <div className="min-w-0 flex-1">
-                              <h5 className="text-sm font-bold text-white truncate">{res.events?.title || "Evento"}</h5>
+                              <h5 className="text-sm font-bold text-white truncate">{res.events?.title || t(lang, "generic.event")}</h5>
                               <p className="text-[11px] text-gray-500 mt-0.5">{res.events?.event_date}</p>
                               <div className="mt-2 flex items-center gap-2">
                                 <span
@@ -1576,61 +2139,132 @@ export default function Home() {
       {showAuth &&
       <div
         className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-fade-in"
-        onClick={() => {setShowAuth(false);setShowPassword(false);}}>
+        onClick={() => {setShowAuth(false);setShowPassword(false);resetAdminFlow();}}>
 
           <div
-          className="w-full sm:max-w-md bg-[#0a0a12] border-t sm:border rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 glow-border animate-fade-in-up"
+          className="w-full sm:max-w-md overflow-hidden bg-[#090914] border-t sm:border rounded-t-3xl sm:rounded-3xl p-5 sm:p-7 glow-border animate-fade-in-up"
           style={{ borderColor: a30 }}
           onClick={(e) => e.stopPropagation()}>
 
             <div className="sm:hidden w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
-            <div className="flex items-center justify-between mb-5 sm:mb-6">
-              <h3 className="text-lg sm:text-xl font-bold text-white">
-                {authMode === "login" ? t(lang, "auth.login") : t(lang, "auth.register")}
-              </h3>
+            <div className="relative flex items-start justify-center mb-5 sm:mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white/5 ring-1 ring-white/10 shadow-lg" style={{ boxShadow: `0 0 24px ${a}55` }}>
+                  <Image src="/icon-512.png" alt="Rumba Liguria" width={48} height={48} className="w-full h-full object-cover" priority />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.24em] font-semibold" style={{ color: a }}>Rumba Liguria</p>
+                  <h3 className="text-lg sm:text-xl font-bold text-white leading-tight">
+                    {adminStep !== "none" ? t(lang, "auth2fa.title") : authMode === "forgot" ? t(lang, "auth.resetTitle") : authMode === "login" ? t(lang, "auth.login") : t(lang, "auth.register")}
+                  </h3>
+                </div>
+              </div>
               <button
               onClick={() => {setShowAuth(false);setShowPassword(false);}}
-              className="p-2 rounded-full hover:bg-white/5 text-gray-400">
+              className="absolute right-0 top-0 p-2 rounded-full hover:bg-white/5 text-gray-400">
 
                 <X size={18} />
               </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-gray-400 mb-1 block">{t(lang, "auth.email")}</label>
+            {adminStep === "channel" ? (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-400 text-center mb-1">{t(lang, "auth2fa.chooseChannel")}</p>
+                {adminChannels.includes("email") && (
+                  <button onClick={() => requestAdminCode("email")} disabled={adminSending} className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/25 transition-all text-left disabled:opacity-50">
+                    <Mail size={20} style={{ color: a }} />
+                    <div><p className="text-white font-semibold text-sm">Email</p><p className="text-gray-500 text-xs">{adminMasked.email}</p></div>
+                  </button>
+                )}
+                {adminChannels.includes("whatsapp") && (
+                  <button onClick={() => requestAdminCode("whatsapp")} disabled={adminSending} className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/25 transition-all text-left disabled:opacity-50">
+                    <Phone size={20} className="text-green-400" />
+                    <div><p className="text-white font-semibold text-sm">WhatsApp</p><p className="text-gray-500 text-xs">{adminMasked.phone}</p></div>
+                  </button>
+                )}
+                <button onClick={resetAdminFlow} className="w-full flex items-center justify-center gap-2 text-xs text-gray-500 hover:text-gray-300 pt-1"><ArrowLeft size={14} /> {t(lang, "auth2fa.goBack")}</button>
+              </div>
+            ) : adminStep === "code" ? (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-400 text-center">{t(lang, "auth2fa.enterCode")}</p>
                 <input
-                type="email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder="email@gmail.com"
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  maxLength={6}
+                  value={adminCode}
+                  onChange={(e) => setAdminCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={(e) => e.key === "Enter" && adminCode.length === 6 && verifyAdminCode()}
+                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-center text-2xl tracking-[0.5em] focus:outline-none transition-all"
+                  placeholder="••••••"
+                />
+                <button onClick={verifyAdminCode} disabled={adminSending || adminCode.length !== 6} className="w-full py-3.5 rounded-xl text-white font-semibold active:scale-[0.98] transition-all duration-300 disabled:opacity-50" style={{ background: `linear-gradient(90deg, ${a}, ${a}cc)`, boxShadow: `0 10px 28px ${a}30` }}>
+                  {adminSending ? t(lang, "auth.loading") : t(lang, "auth2fa.verifyButton")}
+                </button>
+                <button onClick={() => setAdminStep(adminChannels.length > 1 ? "channel" : "none")} className="w-full text-xs text-gray-500 hover:text-gray-300">{t(lang, "auth2fa.resendPrompt")}</button>
+              </div>
+            ) : authMode === "forgot" ? (
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                  <Sparkles size={18} style={{ color: a }} className="mb-2" />
+                  <p className="text-sm text-gray-300 leading-relaxed">{t(lang, "auth.resetDescription")}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-400 mb-1.5 block">{t(lang, "auth.email")}</label>
+                  <div className="relative">
+                    <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
+                    <input autoFocus type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="email@gmail.com" onKeyDown={(e) => e.key === "Enter" && handleAuth()} className="w-full py-3 pl-11 pr-4 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none transition-all text-base" />
+                  </div>
+                </div>
+                <button onClick={handleAuth} disabled={authLoading} className="w-full py-3.5 rounded-xl text-white font-semibold active:scale-[0.98] transition-all duration-300 disabled:opacity-50" style={{ background: `linear-gradient(90deg, ${a}, ${a}cc)`, boxShadow: `0 10px 28px ${a}30` }}>
+                  {authLoading ? t(lang, "auth.loading") : t(lang, "auth.sendReset")}
+                </button>
+                <button type="button" onClick={() => setAuthMode("login")} className="w-full flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"><ArrowLeft size={15} /> {t(lang, "auth.backToLogin")}</button>
+              </div>
+            ) : <div className="space-y-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-1 block">{authMode === "login" ? t(lang, "auth.emailOrUsername") : t(lang, "auth.email")}</label>
+                <div className="relative">
+                  <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
+                  <input
+                  type={authMode === "login" ? "text" : "email"}
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="email@gmail.com"
+                  className="w-full py-3 pl-11 pr-4 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                </div>
 
               </div>
               {authMode === "register" ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-sm text-gray-400 mb-1 block">Nome</label>
-                      <input
-                        type="text"
-                        value={authFirstName}
-                        onChange={(e) => setAuthFirstName(e.target.value)}
-                        placeholder="Mario"
-                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                      <label className="text-sm text-gray-400 mb-1 block">{t(lang, "auth.firstName")}</label>
+                      <div className="relative">
+                        <User size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={authFirstName}
+                          onChange={(e) => setAuthFirstName(e.target.value)}
+                          placeholder="Mario"
+                          className="w-full py-3 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                      </div>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-400 mb-1 block">Cognome</label>
-                      <input
-                        type="text"
-                        value={authLastName}
-                        onChange={(e) => setAuthLastName(e.target.value)}
-                        placeholder="Rossi"
-                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                      <label className="text-sm text-gray-400 mb-1 block">{t(lang, "auth.lastName")}</label>
+                      <div className="relative">
+                        <User size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={authLastName}
+                          onChange={(e) => setAuthLastName(e.target.value)}
+                          placeholder="Rossi"
+                          className="w-full py-3 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                      </div>
                     </div>
                   </div>
                   {/* User type selector */}
                   <div>
-                    <label className="text-sm text-gray-400 mb-2 block">Sei <span className="text-red-400">*</span></label>
+                    <label className="text-sm text-gray-400 mb-2 block">{t(lang, "auth.youAre")} <span className="text-red-400">*</span></label>
                     <div className="grid grid-cols-3 gap-2">
                       {["ERASMUS", "UNIVERSITARIO", "ALTRO"].map((tipo) => (
                         <button
@@ -1653,27 +2287,31 @@ export default function Home() {
                     <label className="text-sm text-gray-400 mb-1 block">
                       {t(lang, "auth.phone")} <span className="text-red-400">*</span>
                     </label>
-                    <input
-                      type="tel"
-                      value={authPhone}
-                      onChange={(e) => setAuthPhone(e.target.value)}
-                      placeholder="+39 347 000 0000"
-                      required
-                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
-                    <p className="text-[10px] text-gray-600 mt-1">Includi il prefisso internazionale (es. +39)</p>
+                    <div className="relative">
+                      <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
+                      <input
+                        type="tel"
+                        value={authPhone}
+                        onChange={(e) => setAuthPhone(e.target.value)}
+                        placeholder="+39 347 000 0000"
+                        required
+                        className="w-full py-3 pl-11 pr-4 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-1">{t(lang, "auth.phoneHint")}</p>
                   </div>
                 </div>
               ) : null}
               <div>
-                <label className="text-sm text-gray-400 mb-1 block">{t(lang, "auth.password")}</label>
+                <label className="text-sm text-gray-400 mb-1 flex items-center gap-1.5"><LockKeyhole size={13} />{t(lang, "auth.password")}</label>
                 <div className="relative">
+                  <LockKeyhole size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" aria-hidden="true" />
                   <input
                   type={showPassword ? "text" : "password"}
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
                   placeholder="********"
                   onKeyDown={(e) => e.key === "Enter" && handleAuth()}
-                  className="w-full px-4 py-3 pr-12 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
+                  className="w-full py-3 pl-11 pr-12 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base" />
 
                   <button
                   type="button"
@@ -1683,30 +2321,35 @@ export default function Home() {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+                {authMode === "login" && (
+                  <button type="button" onClick={() => { setAuthMode("forgot"); setShowPassword(false); }} className="mt-2 text-xs font-medium transition-opacity hover:opacity-75" style={{ color: a }}>
+                    {t(lang, "auth.forgotPassword")}
+                  </button>
+                )}
               </div>
                 <button
               onClick={handleAuth}
               disabled={authLoading}
-              className="w-full py-3.5 sm:py-3 rounded-xl text-white font-semibold active:scale-[0.98] transition-all duration-300 disabled:opacity-50 glow-blue-sm text-base"
+              className="w-full flex items-center justify-center gap-2 py-3.5 sm:py-3 rounded-xl text-white font-semibold active:scale-[0.98] transition-all duration-300 disabled:opacity-50 glow-blue-sm text-base"
               style={{ background: `linear-gradient(90deg, ${a}, ${a}cc)` }}>
 
-                  {authLoading ?
-              t(lang, "auth.loading") :
-              authMode === "login" ?
-              t(lang, "auth.login") :
-              t(lang, "auth.register")}
+                  {authLoading ? t(lang, "auth.loading") : <>
+                    {authMode === "login" ? <LogIn size={18} aria-hidden="true" /> : <UserPlus size={18} aria-hidden="true" />}
+                    {authMode === "login" ? t(lang, "auth.login") : t(lang, "auth.register")}
+                  </>}
                 </button>
                 <p className="text-center text-sm text-gray-500 pb-2 sm:pb-0">
                   {authMode === "login" ? t(lang, "auth.noAccount") : t(lang, "auth.hasAccount")}{" "}
                   <button
                 onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}
-                className="hover:opacity-80 transition-all"
+                className="inline-flex items-center gap-1.5 hover:opacity-80 transition-all"
                 style={{ color: a }}>
 
+                    {authMode === "login" ? <UserPlus size={15} aria-hidden="true" /> : <LogIn size={15} aria-hidden="true" />}
                     {authMode === "login" ? t(lang, "auth.register") : t(lang, "auth.login")}
                   </button>
                 </p>
-            </div>
+            </div>}
           </div>
         </div>
       }

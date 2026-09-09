@@ -20,6 +20,17 @@ create table if not exists public.users (
   created_at timestamptz not null default now()
 );
 
+-- Tokens de recuperación de contraseña: solo se almacena su hash.
+create table if not exists public.password_reset_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  token_hash text not null unique,
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists password_reset_tokens_user_id_idx on public.password_reset_tokens(user_id);
+
 -- -------------------------------------------------------------
 -- Tabla: events (eventos/fiestas)
 -- El campo details guarda codificados sale_start/sale_end/
@@ -82,6 +93,10 @@ create table if not exists public.admin_settings (
   username text,
   password text,
   accent_color text,
+  admin_email text,           -- destino del código 2FA por correo
+  admin_phone text,           -- destino del código 2FA por WhatsApp (formato internacional, ej. +39...)
+  whatsapp_apikey text,       -- apikey de CallMeBot para ese número
+  two_factor_enabled boolean not null default true,
   updated_at timestamptz not null default now()
 );
 
@@ -90,12 +105,34 @@ values (1, null, null)
 on conflict (id) do nothing;
 
 -- -------------------------------------------------------------
+-- Tabla: admin_login_codes (códigos de un solo uso para el 2FA del panel)
+-- -------------------------------------------------------------
+create table if not exists public.admin_login_codes (
+  id uuid primary key default gen_random_uuid(),
+  code_hash text not null,
+  channel text not null, -- 'email' | 'whatsapp'
+  attempts integer not null default 0,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+-- -------------------------------------------------------------
 -- Tabla: gallery (galería de fotos/videos)
 -- -------------------------------------------------------------
 create table if not exists public.gallery (
   id uuid primary key default gen_random_uuid(),
   url text not null,
   type text not null default 'image', -- image | video
+  created_at timestamptz not null default now()
+);
+
+-- -------------------------------------------------------------
+-- Tabla: hero_photos (foto di sfondo che ruotano nella Hero della
+-- home — separata dalla galleria generale, gestita a parte dall'admin)
+-- -------------------------------------------------------------
+create table if not exists public.hero_photos (
+  id uuid primary key default gen_random_uuid(),
+  url text not null,
   created_at timestamptz not null default now()
 );
 
@@ -119,6 +156,7 @@ create index if not exists comments_event_id_idx on public.comments(event_id);
 create table if not exists public.client_cards (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
+  card_number integer, -- numero progressivo stampato sulla tessera, per farla corrispondere alla tessera fisica
   full_name text not null,
   country text,
   city text,
@@ -140,6 +178,7 @@ create table if not exists public.client_cards (
 create index if not exists client_cards_code_idx on public.client_cards(code);
 create index if not exists client_cards_email_idx on public.client_cards(email);
 create index if not exists client_cards_full_name_idx on public.client_cards(full_name);
+create unique index if not exists client_cards_card_number_idx on public.client_cards(card_number);
 
 -- -------------------------------------------------------------
 -- Tabla: card_scans (storico accessi/ingressi registrati ad ogni
@@ -161,10 +200,13 @@ create index if not exists card_scans_scanned_at_idx on public.card_scans(scanne
 -- políticas públicas (la service role key ignora RLS).
 -- -------------------------------------------------------------
 alter table public.users enable row level security;
+alter table public.password_reset_tokens enable row level security;
 alter table public.events enable row level security;
 alter table public.reservations enable row level security;
 alter table public.admin_settings enable row level security;
+alter table public.admin_login_codes enable row level security;
 alter table public.gallery enable row level security;
+alter table public.hero_photos enable row level security;
 alter table public.comments enable row level security;
 alter table public.client_cards enable row level security;
 alter table public.card_scans enable row level security;

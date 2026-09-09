@@ -1,5 +1,30 @@
-const RESEND_API_KEY = process.env.RESEND_API_KEY!;
-const FROM = "Rumba Liguria <onboarding@resend.dev>";
+import nodemailer from "nodemailer";
+
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const FROM = process.env.EMAIL_FROM || (GMAIL_USER ? `Rumba Liguria <${GMAIL_USER}>` : undefined);
+
+// Un único transporter con conexiones reutilizables (pool): así el segundo
+// correo no paga otra vez el handshake TLS + AUTH con Gmail. Los timeouts
+// evitan que una conexión colgada bloquee la petición indefinidamente.
+let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+function getTransporter() {
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !FROM) {
+    throw new Error("Gmail SMTP no está configurado. Define GMAIL_USER y GMAIL_APP_PASSWORD.");
+  }
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      pool: true,
+      maxConnections: 2,
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
+    });
+  }
+  return transporter;
+}
 
 export async function sendEmail({
   to,
@@ -10,24 +35,49 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: FROM,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html,
-    }),
+  return getTransporter().sendMail({
+    from: FROM,
+    to: Array.isArray(to) ? to.join(", ") : to,
+    subject,
+    html,
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend error: ${err}`);
-  }
-  return res.json();
+}
+
+export function sendPasswordResetEmail({ to, resetUrl }: { to: string; resetUrl: string }) {
+  return sendEmail({
+    to,
+    subject: "Recupera tu contraseña de Rumba Liguria",
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#05050b;font-family:Arial,sans-serif;color:#fff;">
+      <div style="max-width:520px;margin:0 auto;padding:32px 16px;">
+        <div style="background:#0b0b15;border:1px solid #26263a;border-radius:20px;padding:32px;text-align:center;">
+          <img src="${resetUrl.split("/reset-password")[0]}/icon-192.png" width="64" height="64" style="border-radius:16px;" alt="Rumba Liguria" />
+          <p style="color:#60a5fa;font-size:12px;font-weight:bold;letter-spacing:2px;margin:18px 0 6px;">RUMBA LIGURIA</p>
+          <h1 style="font-size:24px;margin:0 0 14px;">Restablece tu contraseña</h1>
+          <p style="color:#b0b0c0;line-height:1.6;margin:0 0 24px;">Recibimos una solicitud para cambiar la contraseña de tu cuenta. Este enlace es válido durante una hora y solo puede usarse una vez.</p>
+          <a href="${resetUrl}" style="display:block;background:linear-gradient(90deg,#2563eb,#60a5fa);border-radius:12px;color:white;padding:14px 18px;text-decoration:none;font-weight:bold;">Crear nueva contraseña</a>
+          <p style="color:#77778b;font-size:12px;line-height:1.5;margin:24px 0 0;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+        </div>
+      </div>
+    </body></html>`,
+  });
+}
+
+export function sendAdminCodeEmail({ to, code }: { to: string; code: string }) {
+  return sendEmail({
+    to,
+    subject: `Codice di accesso Rumba Liguria: ${code}`,
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#05050b;font-family:Arial,sans-serif;color:#fff;">
+      <div style="max-width:520px;margin:0 auto;padding:32px 16px;">
+        <div style="background:#0b0b15;border:1px solid #26263a;border-radius:20px;padding:32px;text-align:center;">
+          <p style="color:#60a5fa;font-size:12px;font-weight:bold;letter-spacing:2px;margin:0 0 6px;">RUMBA LIGURIA — AREA RISERVATA</p>
+          <h1 style="font-size:22px;margin:0 0 14px;">Codice di verifica</h1>
+          <p style="color:#b0b0c0;line-height:1.6;margin:0 0 20px;">Usa questo codice per completare l'accesso al pannello di amministrazione. Scade tra 10 minuti.</p>
+          <div style="font-size:34px;font-weight:bold;letter-spacing:10px;background:#101020;border:1px solid #26263a;border-radius:12px;padding:18px 0;margin:0 0 20px;">${code}</div>
+          <p style="color:#77778b;font-size:12px;line-height:1.5;margin:0;">Se non hai richiesto tu questo accesso, cambia subito la password del pannello.</p>
+        </div>
+      </div>
+    </body></html>`,
+  });
 }
 
 export function eventAnnouncementHtml(event: {

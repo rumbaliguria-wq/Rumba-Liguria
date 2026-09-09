@@ -46,10 +46,21 @@ export async function POST(req: Request) {
     code = generateCardCode();
   }
 
+  // Numero progressivo stampato sulla tessera — corrisponde all'ordine in
+  // cui l'admin fa le tessere fisiche, quindi deve crescere sempre di uno.
+  const { data: lastCard } = await supabase
+    .from("client_cards")
+    .select("card_number")
+    .order("card_number", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  const card_number = (lastCard?.card_number || 0) + 1;
+
   const { data, error } = await supabase
     .from("client_cards")
     .insert({
       code,
+      card_number,
       full_name,
       country: body.country || null,
       city: body.city || null,
