@@ -1948,14 +1948,8 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600" style={{ borderTop: `1px solid ${a10}` }}>
+          <div className="pt-6 text-xs text-gray-600" style={{ borderTop: `1px solid ${a10}` }}>
             <p>© {new Date().getFullYear()} Rumba Liguria Events. {t(lang, "footer.rights")}</p>
-            <p>
-              {t(lang, "footer.createdBy")}{" "}
-              <a href="https://wa.me/393478275119" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-400 transition-all">
-                Tokkyo&apos;s
-              </a>
-            </p>
           </div>
         </div>
       </footer>
