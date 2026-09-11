@@ -951,9 +951,9 @@ export default function Home() {
                 <span className="w-8 h-px" style={{ background: a }} />
                 {t(lang, "hero.tagline").toUpperCase()}
               </p>
-              <h2 className="text-5xl sm:text-7xl md:text-8xl font-extrabold leading-[0.95] tracking-tight mb-5 sm:mb-6 animate-fade-in-up animate-delay-100">
-                <span className="block text-white">RUMBA</span>
-                <span className="block text-gradient-night">LIGURIA</span>
+              <h2 className="text-3xl sm:text-7xl md:text-8xl font-extrabold leading-[0.95] tracking-tight mb-5 sm:mb-6 animate-fade-in-up animate-delay-100 whitespace-nowrap sm:whitespace-normal">
+                <span className="sm:block text-white">RUMBA</span>{" "}
+                <span className="sm:block text-gradient-night">LIGURIA</span>
               </h2>
               <p className="text-gray-300 text-base sm:text-lg mb-8 sm:mb-10 max-w-md leading-relaxed animate-fade-in-up animate-delay-200">
                 {t(lang, "hero.description")}
