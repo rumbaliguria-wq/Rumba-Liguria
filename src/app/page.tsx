@@ -798,12 +798,10 @@ export default function Home() {
               height={40}
               className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-contain flex-shrink-0" />
 
-              <h1 className="text-lg sm:text-2xl font-bold tracking-tight">
-                <span className="whitespace-nowrap">
-                  <span className="text-white">Rumba</span>{" "}
-                  <span className="glow-text" style={{ color: a }}>Liguria</span>
-                </span>{" "}
-                <span className="text-gray-400 text-sm sm:text-base font-normal hidden xs:inline">Events</span>
+              <h1 className="text-base sm:text-2xl font-bold tracking-tight whitespace-nowrap">
+                <span className="text-white">Rumba</span>{" "}
+                <span className="glow-text" style={{ color: a }}>Liguria</span>{" "}
+                <span className="text-gray-400 text-xs sm:text-base font-normal">Events</span>
               </h1>
             </a>
 
