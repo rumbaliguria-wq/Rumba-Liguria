@@ -1177,11 +1177,6 @@ export default function Home() {
                         <p className="text-xs font-semibold mb-0.5" style={{ color: accentColor }}>{event.organizer}</p>
                       )}
                       <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-3">Rumba Liguria</p>
-                      {spotsLeft !== null && !event.sold_out && !isPast && !isUpcoming && (
-                        <p className={`mb-3 text-xs font-medium ${spotsLeft <= 15 ? "text-amber-300" : "text-emerald-400"}`}>
-                          {spotsLeft > 15 ? t(lang, "eventDetail.spotsAvailable", { count: spotsLeft }) : t(lang, "eventDetail.lastSpotsAvailable", { count: spotsLeft })}
-                        </p>
-                      )}
 
                       {/* Vedi Evento — opens the popup with full description, reservation, map */}
                       <button
@@ -1305,13 +1300,6 @@ export default function Home() {
                 </div>
 
                 {/* Full description — no truncation, there's room here */}
-                {detailEvent.max_tickets != null && !detailEvent.sold_out && (() => {
-                  const spotsLeft = Math.max(0, detailEvent.max_tickets - (detailEvent.tickets_sold ?? detailEvent.reservation_total));
-                  return <div className={`mb-4 flex items-center justify-between rounded-xl border px-3 py-2.5 ${spotsLeft <= 15 ? "border-amber-400/25 bg-amber-400/10" : "border-emerald-400/20 bg-emerald-400/10"}`}>
-                    <span className="text-xs text-gray-300">{t(lang, "eventDetail.availability")}</span>
-                    <span className={`text-sm font-bold ${spotsLeft <= 15 ? "text-amber-300" : "text-emerald-400"}`}>{t(lang, "eventDetail.spotsLeft", { count: spotsLeft })}</span>
-                  </div>;
-                })()}
                 {detailEvent.details && (
                   <p className="text-gray-400 leading-relaxed text-sm sm:text-base whitespace-pre-line mb-4">
                     {detailEvent.details}
