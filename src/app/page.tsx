@@ -1883,7 +1883,7 @@ export default function Home() {
                   height={32}
                   className="w-8 h-8 rounded-full object-contain flex-shrink-0"
                 />
-                <span className="text-base font-bold">
+                <span className="text-base font-bold whitespace-nowrap">
                   <span className="text-white">Rumba</span> <span style={{ color: a }}>Liguria</span>
                 </span>
               </div>
