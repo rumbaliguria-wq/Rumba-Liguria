@@ -76,6 +76,7 @@ create table if not exists public.reservations (
   guest_count integer not null default 1,
   status text not null default 'active', -- active | used | cancelled
   vip_number integer, -- numero all'interno della sua generazione (riparte da 1 ogni volta; solo per user_email = '__vip__')
+  link_pin text, -- PIN de acceso a las estadísticas del RR.PP.; solo se usa en la fila "stub" del link (user_email = '__link__nombre__')
   created_at timestamptz not null default now()
 );
 

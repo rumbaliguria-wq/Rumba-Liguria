@@ -50,6 +50,7 @@ export interface Reservation {
   guest_count: number;
   status: string;
   created_at: string;
+  link_pin?: string | null;
   events: { title: string; event_date_iso?: string; archived?: boolean } | null;
 }
 

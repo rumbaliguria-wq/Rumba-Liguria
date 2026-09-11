@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 // it to a different event. Same shareable URL keeps working, it just points
 // wherever it was last assigned.
 export async function POST(req: NextRequest) {
-  const { event_id, name } = await req.json();
+  const { event_id, name, pin } = await req.json();
   if (!event_id || !name?.trim()) {
     return NextResponse.json({ error: "Event ID and name required" }, { status: 400 });
   }
@@ -78,7 +78,13 @@ export async function POST(req: NextRequest) {
   if (existing) {
     const { error } = await supabase
       .from("reservations")
-      .update({ event_id, code, user_name: name.trim(), created_at: new Date().toISOString() })
+      .update({
+        event_id,
+        code,
+        user_name: name.trim(),
+        created_at: new Date().toISOString(),
+        ...(pin?.trim() ? { link_pin: pin.trim() } : {}),
+      })
       .eq("id", existing.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true, reassigned: true, name: name.trim(), code });
@@ -91,6 +97,7 @@ export async function POST(req: NextRequest) {
     user_name: name.trim(),
     guest_count: 0,
     status: "active",
+    link_pin: pin?.trim() || null,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

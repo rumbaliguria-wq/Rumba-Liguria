@@ -183,7 +183,9 @@ export default function AdminPage() {
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
+  const [linkPin, setLinkPin] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
+  const [generatedPin, setGeneratedPin] = useState("");
   const [linkGenerating, setLinkGenerating] = useState(false);
   const [allLinks, setAllLinks] = useState<{eventTitle: string; name: string; url: string}[]>([]);
   const [reassignLinkName, setReassignLinkName] = useState<string | null>(null);
@@ -1986,22 +1988,35 @@ export default function AdminPage() {
                       className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
                     />
                   </div>
+                  <div className="w-24 flex-shrink-0">
+                    <label className="text-xs text-gray-400 mb-1 block">PIN</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={linkPin}
+                      onChange={(e) => setLinkPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="1234"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
                   <button
                     onClick={async () => {
                       if (!linkEventId) { toast.error("Seleziona un evento"); return; }
                       if (!linkName.trim()) { toast.error("Inserisci un nome per il link"); return; }
+                      if (!linkPin.trim()) { toast.error("Inserisci un PIN per il RR.PP."); return; }
                       setLinkGenerating(true);
                       try {
                         const res = await fetch("/api/custom-links", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ event_id: linkEventId, name: linkName.trim() }),
+                          body: JSON.stringify({ event_id: linkEventId, name: linkName.trim(), pin: linkPin.trim() }),
                         });
                         const d = await res.json();
                         if (res.ok) {
                           const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
                           const url = `${origin}/?ref=${encodeURIComponent(linkName.trim())}`;
                           setGeneratedLink(url);
+                          setGeneratedPin(linkPin.trim());
                           toast.success(d.reassigned ? "Link riassegnato a questo evento!" : "Link creato!");
                         } else toast.error(d.error || "Errore");
                       } catch { toast.error("Errore"); }
@@ -2014,12 +2029,17 @@ export default function AdminPage() {
                   </button>
                 </div>
                 {generatedLink && (
-                  <div className="p-2 rounded-lg bg-white/5 flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-gray-400 flex-1 truncate">{generatedLink}</span>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(generatedLink).then(() => toast.success("Link copiato!")); }}
-                      className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30"
-                    >Copia link</button>
+                  <div className="space-y-1 mt-1">
+                    <div className="p-2 rounded-lg bg-white/5 flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 flex-1 truncate">{generatedLink}</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(generatedLink).then(() => toast.success("Link copiato!")); }}
+                        className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30"
+                      >Copia link</button>
+                    </div>
+                    <p className="text-[10px] text-gray-500 px-1">
+                      Dai al RR.PP. anche il PIN <span className="text-white font-bold font-mono">{generatedPin}</span> per vedere le sue statistiche su <span className="text-blue-400">/rrpp/{linkName.trim()}</span>
+                    </p>
                   </div>
                 )}
                 {/* Link Stats */}
@@ -2030,13 +2050,21 @@ export default function AdminPage() {
                     // can get reassigned across several events over time, and we
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
-                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean }> = {};
+                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null }> = {};
+                    // El PIN vive en la fila "stub" del link (user_email = __link__nombre__),
+                    // no en las reservas de sus clientes — se lo pega por nombre + evento.
+                    const pinByKey: Record<string, string | null | undefined> = {};
+                    reservations.forEach(r => {
+                      if (r.user_email?.startsWith("__link__")) {
+                        pinByKey[`${r.user_name}::${r.event_id}`] = r.link_pin;
+                      }
+                    });
                     reservations.forEach(r => {
                       const refMatch = r.user_name.match(/\[ref:([^\]]+)\]/);
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: pinByKey[key] };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
                       }
@@ -2068,6 +2096,7 @@ export default function AdminPage() {
                                   <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
+                                  {stats.pin && <span className="text-[10px] text-gray-500 font-mono" title="PIN del RR.PP.">PIN {stats.pin}</span>}
                                   <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
                                   <span className="text-[10px] text-green-400">{stats.used} entrati</span>
                                 </div>
