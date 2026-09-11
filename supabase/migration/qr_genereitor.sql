@@ -202,6 +202,10 @@ from numbered
 where c.id = numbered.id;
 create unique index if not exists client_cards_card_number_idx on public.client_cards(card_number);
 
+-- Nombre real del local por evento, para mostrarlo en vez de "Rumba Liguria"
+-- cuando la fiesta es en otro lugar (el link de Google Maps se deja intacto).
+alter table public.events add column if not exists venue_name text;
+
 create table if not exists public.hero_photos (
   id uuid primary key default gen_random_uuid(),
   url text not null,

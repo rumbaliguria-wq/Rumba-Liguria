@@ -22,6 +22,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         flyer_url: body.flyer_url,
         flyer_ratio: body.flyer_ratio,
         maps_url: body.maps_url || null,
+        venue_name: body.venue_name || null,
         is_popular: body.is_popular || false,
         organizer: body.organizer || "Rumba Liguria",
         event_date: body.event_date || null,

@@ -129,6 +129,7 @@ export default function AdminPage() {
     flyer_url: "",
     flyer_ratio: "16:9",
     maps_url: "",
+    venue_name: "",
     is_popular: false,
     organizer: "Rumba Liguria",
     event_date: "",
@@ -877,6 +878,7 @@ export default function AdminPage() {
       flyer_url: event.flyer_url || "",
       flyer_ratio: event.flyer_ratio || "16:9",
       maps_url: event.maps_url || "",
+      venue_name: event.venue_name || "",
       is_popular: event.is_popular || false,
       organizer: event.organizer || "Rumba Liguria",
         event_date: event.event_date || "",
@@ -1333,7 +1335,10 @@ export default function AdminPage() {
 
   const handlePlaceSelect = (place: { display_name: string; lat: string; lon: string }) => {
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lon}`;
-    setFormData((p) => ({ ...p, maps_url: mapsUrl }));
+    // "Nombre — dirección" → nos quedamos solo con el nombre para mostrarlo
+    // al público (la dirección completa se ve igual al abrir el mapa).
+    const venueName = place.display_name.split(" — ")[0];
+    setFormData((p) => ({ ...p, maps_url: mapsUrl, venue_name: venueName }));
     setPlaceQuery(place.display_name);
     setPlaceSuggestions([]);
   };
@@ -1366,6 +1371,7 @@ export default function AdminPage() {
       flyer_url: "",
       flyer_ratio: "16:9",
       maps_url: "",
+      venue_name: "",
       is_popular: false,
       organizer: "Rumba Liguria",
         event_date: "",
@@ -2438,6 +2444,19 @@ export default function AdminPage() {
                               <CheckCircle size={10} /> Posizione selezionata
                             </p>
                           )}
+                        </div>
+
+                        {/* Nome del locale mostrato al pubblico — separato dal link mappa */}
+                        <div>
+                          <label className="text-sm text-gray-400 mb-1 block">🏠 Nome del locale (opzionale)</label>
+                          <input
+                            type="text"
+                            value={formData.venue_name}
+                            onChange={(e) => setFormData((p) => ({ ...p, venue_name: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-base"
+                            placeholder="es. Casa Mia Club, Genova Centro"
+                          />
+                          <p className="text-[10px] text-gray-500 mt-1">Se vuoto, viene mostrato &quot;Rumba Liguria&quot;.</p>
                         </div>
 
                       {/* Popular toggle */}

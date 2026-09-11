@@ -9,6 +9,7 @@ export interface Event {
   flyer_url: string;
   flyer_ratio: string;
   maps_url?: string;
+  venue_name?: string;
   is_popular?: boolean;
   organizer?: string;
   archived?: boolean;

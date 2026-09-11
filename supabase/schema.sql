@@ -45,6 +45,7 @@ create table if not exists public.events (
   flyer_url text,
   flyer_ratio text default '16:9',
   maps_url text,
+  venue_name text, -- nome del locale mostrato al pubblico (es. "Casa Mia Club, Genova"); se vuoto, si mostra "Rumba Liguria"
   is_popular boolean not null default false,
   organizer text default 'Rumba Liguria',
   event_date text,

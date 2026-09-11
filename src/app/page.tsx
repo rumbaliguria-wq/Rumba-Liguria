@@ -84,6 +84,7 @@ interface Event {
   flyer_url: string;
   flyer_ratio: string;
   maps_url?: string;
+  venue_name?: string;
   is_popular?: boolean;
   organizer?: string;
   event_date?: string;
@@ -991,7 +992,7 @@ export default function Home() {
                   {(featuredEvent.event_time || featuredEvent.event_time_end) && (
                     <span className="flex items-center gap-2"><Clock size={14} style={{ color: a }} className="flex-shrink-0" /> {featuredEvent.event_time}{featuredEvent.event_time_end ? ` – ${featuredEvent.event_time_end}` : ""}</span>
                   )}
-                  <span className="flex items-center gap-2"><MapPin size={14} style={{ color: a }} className="flex-shrink-0" /> Rumba Liguria {featuredEvent.organizer && featuredEvent.organizer !== "Rumba Liguria" ? `– ${featuredEvent.organizer}` : ""}</span>
+                  <span className="flex items-center gap-2"><MapPin size={14} style={{ color: a }} className="flex-shrink-0" /> {featuredEvent.venue_name || "Rumba Liguria"} {featuredEvent.organizer && featuredEvent.organizer !== "Rumba Liguria" ? `– ${featuredEvent.organizer}` : ""}</span>
                 </div>
 
                 {featuredEvent.dress_code && (
