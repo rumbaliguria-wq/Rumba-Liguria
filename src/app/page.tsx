@@ -56,14 +56,6 @@ interface GalleryItem {
   created_at: string;
 }
 
-interface EventComment {
-  id: string;
-  event_id: string;
-  user_email: string;
-  content: string;
-  created_at: string;
-}
-
 interface RentalItem {
   id: string;
   name: string;
@@ -194,10 +186,6 @@ export default function Home() {
   const [cancelledReservations, setCancelledReservations] = useState<{code: string;eventTitle: string;}[]>([]);
   const [expandedMaps, setExpandedMaps] = useState<Set<string>>(new Set());
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
-  const [eventComments, setEventComments] = useState<EventComment[]>([]);
-  const [commentDraft, setCommentDraft] = useState("");
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [commentSending, setCommentSending] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const galleryTouchStart = useRef<number | null>(null);
   const moveGallery = useCallback((direction: 1 | -1) => {
@@ -399,41 +387,6 @@ export default function Home() {
       });
     }
   }, [fetchEvents, checkCancelledReservations]);
-
-  useEffect(() => {
-    if (!detailEventId) {
-      setEventComments([]);
-      setCommentDraft("");
-      return;
-    }
-    setCommentsLoading(true);
-    fetch(`/api/comments?eventId=${encodeURIComponent(detailEventId)}`)
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setEventComments(Array.isArray(data) ? data : []))
-      .catch(() => setEventComments([]))
-      .finally(() => setCommentsLoading(false));
-  }, [detailEventId]);
-
-  const submitEventComment = async () => {
-    if (!detailEventId || !userEmail || !commentDraft.trim() || commentSending) return;
-    setCommentSending(true);
-    try {
-      const res = await fetch("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: detailEventId, user_email: userEmail, content: commentDraft.trim().slice(0, 280) }),
-      });
-      const comment = await res.json();
-      if (!res.ok) throw new Error(comment.error || t(lang, "auth.genericError"));
-      setEventComments((items) => [comment, ...items]);
-      setCommentDraft("");
-      toast.success(t(lang, "eventDetail.commentPosted"));
-    } catch {
-      toast.error(t(lang, "eventDetail.commentPostError"));
-    } finally {
-      setCommentSending(false);
-    }
-  };
 
   const resetAdminFlow = () => {
     setAdminStep("none");
@@ -1038,7 +991,7 @@ export default function Home() {
                   {(featuredEvent.event_time || featuredEvent.event_time_end) && (
                     <span className="flex items-center gap-2"><Clock size={14} style={{ color: a }} className="flex-shrink-0" /> {featuredEvent.event_time}{featuredEvent.event_time_end ? ` – ${featuredEvent.event_time_end}` : ""}</span>
                   )}
-                  <span className="flex items-center gap-2"><MapPin size={14} style={{ color: a }} className="flex-shrink-0" /> Rumba Liguria {featuredEvent.organizer ? `– ${featuredEvent.organizer}` : ""}</span>
+                  <span className="flex items-center gap-2"><MapPin size={14} style={{ color: a }} className="flex-shrink-0" /> Rumba Liguria {featuredEvent.organizer && featuredEvent.organizer !== "Rumba Liguria" ? `– ${featuredEvent.organizer}` : ""}</span>
                 </div>
 
                 {featuredEvent.dress_code && (
@@ -1306,16 +1259,6 @@ export default function Home() {
                   </p>
                 )}
 
-                {/* Dress code badge */}
-                <section className="mb-5 border-t border-white/10 pt-4">
-                  <div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-sm font-bold text-white">{t(lang, "eventDetail.testimonialsTitle")}</h4><span className="text-xs text-gray-500">{t(lang, "eventDetail.commentsCount", { count: eventComments.length })}</span></div>
-                  {commentsLoading ? <div className="h-12 animate-pulse rounded-xl bg-white/5" /> : eventComments.length > 0 ? (
-                    <div className="mb-3 max-h-36 space-y-2 overflow-y-auto pr-1">
-                      {eventComments.map((comment) => <div key={comment.id} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5"><p className="mb-1 text-xs font-semibold" style={{ color: accentColor }}>{comment.user_email.split("@")[0]}</p><p className="text-xs leading-relaxed text-gray-300">{comment.content}</p></div>)}
-                    </div>
-                  ) : <p className="mb-3 text-xs text-gray-500">{t(lang, "eventDetail.noCommentsYet")}</p>}
-                  {userEmail ? <div className="flex gap-2"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && submitEventComment()} maxLength={280} placeholder={t(lang, "eventDetail.commentPlaceholder")} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/30" /><button type="button" onClick={submitEventComment} disabled={!commentDraft.trim() || commentSending} className="rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style={{ background: accentColor }}>{commentSending ? "…" : t(lang, "events.send")}</button></div> : <p className="text-xs text-gray-500">{t(lang, "eventDetail.loginToComment")}</p>}
-                </section>
                 {detailEvent.dress_code && (
                   <div className="flex flex-wrap gap-2 mb-4">
                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 text-xs border border-white/10">
