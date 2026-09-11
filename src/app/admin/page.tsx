@@ -185,6 +185,7 @@ export default function AdminPage() {
   const [linkName, setLinkName] = useState("");
   const [linkPin, setLinkPin] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
+  const [generatedRrppLink, setGeneratedRrppLink] = useState("");
   const [generatedPin, setGeneratedPin] = useState("");
   const [linkGenerating, setLinkGenerating] = useState(false);
   const [allLinks, setAllLinks] = useState<{eventTitle: string; name: string; url: string}[]>([]);
@@ -2014,8 +2015,8 @@ export default function AdminPage() {
                         const d = await res.json();
                         if (res.ok) {
                           const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
-                          const url = `${origin}/?ref=${encodeURIComponent(linkName.trim())}`;
-                          setGeneratedLink(url);
+                          setGeneratedLink(`${origin}/?ref=${encodeURIComponent(linkName.trim())}`);
+                          setGeneratedRrppLink(`${origin}/rrpp/${encodeURIComponent(linkName.trim())}`);
                           setGeneratedPin(linkPin.trim());
                           toast.success(d.reassigned ? "Link riassegnato a questo evento!" : "Link creato!");
                         } else toast.error(d.error || "Errore");
@@ -2029,17 +2030,29 @@ export default function AdminPage() {
                   </button>
                 </div>
                 {generatedLink && (
-                  <div className="space-y-1 mt-1">
-                    <div className="p-2 rounded-lg bg-white/5 flex items-center gap-2">
-                      <span className="text-[10px] text-gray-400 flex-1 truncate">{generatedLink}</span>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(generatedLink).then(() => toast.success("Link copiato!")); }}
-                        className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30"
-                      >Copia link</button>
+                  <div className="space-y-2 mt-1">
+                    <div>
+                      <p className="text-[10px] text-gray-500 px-1 mb-1">1. Questo lo condividi per far prenotare la gente:</p>
+                      <div className="p-2 rounded-lg bg-white/5 flex items-center gap-2">
+                        <span className="text-[10px] text-gray-400 flex-1 truncate">{generatedLink}</span>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(generatedLink).then(() => toast.success("Link copiato!")); }}
+                          className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30"
+                        >Copia link</button>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-gray-500 px-1">
-                      Dai al RR.PP. anche il PIN <span className="text-white font-bold font-mono">{generatedPin}</span> per vedere le sue statistiche su <span className="text-blue-400">/rrpp/{linkName.trim()}</span>
-                    </p>
+                    <div>
+                      <p className="text-[10px] text-gray-500 px-1 mb-1">
+                        2. Questo lo dai al RR.PP., insieme al PIN <span className="text-white font-bold font-mono">{generatedPin}</span>, per vedere le sue statistiche:
+                      </p>
+                      <div className="p-2 rounded-lg bg-white/5 flex items-center gap-2">
+                        <span className="text-[10px] text-gray-400 flex-1 truncate">{generatedRrppLink}</span>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(generatedRrppLink).then(() => toast.success("Link copiato!")); }}
+                          className="px-2 py-1 rounded bg-purple-500/20 text-purple-400 text-[10px] font-medium hover:bg-purple-500/30"
+                        >Copia link</button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {/* Link Stats */}
