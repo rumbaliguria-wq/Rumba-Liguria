@@ -1289,6 +1289,11 @@ export default function AdminPage() {
     });
   };
 
+    // Génova (donde está el negocio) — usado para priorizar resultados
+    // cercanos sin descartar el resto, a diferencia de un filtro por radio.
+    const GENOVA_LON = 8.9463;
+    const GENOVA_LAT = 44.4056;
+
     const handlePlaceSearch = (value: string) => {
       setPlaceQuery(value);
       setFormData((p) => ({ ...p, maps_url: value }));
@@ -1299,27 +1304,32 @@ export default function AdminPage() {
         setPlaceLoading(true);
         try {
           const key = process.env.NEXT_PUBLIC_GEOAPIFY_KEY;
+          // Búsqueda por nombre de negocio (bares, discotecas, clubes...),
+          // priorizando lo cercano a Génova sin descartar el resto — así un
+          // lugar real no desaparece solo por estar mal etiquetado o un
+          // poco más lejos.
           const res = await fetch(
-            `https://api.geoapify.com/v2/places?categories=entertainment,leisure,tourism&filter=circle:12.49,44.06,200000&bias=proximity:12.49,44.06&limit=5&name=${encodeURIComponent(value)}&apiKey=${key}`
+            `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(value)}&bias=proximity:${GENOVA_LON},${GENOVA_LAT}&limit=5&lang=it&apiKey=${key}`
           );
           const data = await res.json();
           const features = data.features ?? [];
           if (features.length > 0) {
-            const suggestions = features.map((f: { properties: { formatted: string; name?: string; address_line1?: string; address_line2?: string; lon: number; lat: number } }) => ({
-              display_name: [f.properties.name, f.properties.address_line2].filter(Boolean).join(" — ") || f.properties.formatted || "",
+            const suggestions = features.map((f: { properties: { formatted: string; name?: string; lon: number; lat: number } }) => ({
+              display_name: f.properties.name ? `${f.properties.name} — ${f.properties.formatted}` : f.properties.formatted,
               lat: String(f.properties.lat),
               lon: String(f.properties.lon),
             }));
             setPlaceSuggestions(suggestions);
           } else {
-            // fallback: geocode autocomplete
+            // fallback: búsqueda por categoría (ocio/entretenimiento) en un
+            // radio amplio alrededor de Génova
             const res2 = await fetch(
-              `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(value)}&limit=5&lang=it&type=amenity&apiKey=${key}`
+              `https://api.geoapify.com/v2/places?categories=entertainment,leisure,tourism,catering&filter=circle:${GENOVA_LON},${GENOVA_LAT},100000&bias=proximity:${GENOVA_LON},${GENOVA_LAT}&limit=5&name=${encodeURIComponent(value)}&apiKey=${key}`
             );
             const data2 = await res2.json();
             const features2 = data2.features ?? [];
-            const suggestions2 = features2.map((f: { properties: { formatted: string; name?: string; lon: number; lat: number } }) => ({
-              display_name: f.properties.name ? `${f.properties.name} — ${f.properties.formatted}` : f.properties.formatted,
+            const suggestions2 = features2.map((f: { properties: { formatted: string; name?: string; address_line2?: string; lon: number; lat: number } }) => ({
+              display_name: [f.properties.name, f.properties.address_line2].filter(Boolean).join(" — ") || f.properties.formatted || "",
               lat: String(f.properties.lat),
               lon: String(f.properties.lon),
             }));
