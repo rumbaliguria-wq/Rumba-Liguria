@@ -422,16 +422,6 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       ctx.fillStyle = topColor;
       ctx.fillRect(0, 0, W, splitY);
 
-      // Faint watermark, visible on both the black and white halves
-      ctx.save();
-      ctx.translate(W / 2, splitY - 10);
-      ctx.rotate(-0.05);
-      ctx.font = "italic 64px 'Segoe Script', 'Brush Script MT', cursive";
-      ctx.strokeStyle = "rgba(160,160,160,0.35)";
-      ctx.lineWidth = 1;
-      ctx.strokeText("Rumba Liguria", 0, 0);
-      ctx.restore();
-
       // Photo straddling the black/white divide
       const photoCx = W / 2, photoCy = splitY;
       ctx.fillStyle = "#ffffff";
