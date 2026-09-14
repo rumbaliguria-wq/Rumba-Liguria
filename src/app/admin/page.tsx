@@ -3047,7 +3047,7 @@ export default function AdminPage() {
                   const activeEvents = events
                     .filter(e => !e.archived)
                     .sort((a, b) => {
-                      if (a.event_date_iso && b.event_date_iso) return b.event_date_iso.localeCompare(a.event_date_iso);
+                      if (a.event_date_iso && b.event_date_iso) return a.event_date_iso.localeCompare(b.event_date_iso);
                       if (a.event_date_iso) return -1;
                       return 1;
                     });
