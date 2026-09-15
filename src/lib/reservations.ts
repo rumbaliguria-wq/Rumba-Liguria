@@ -27,9 +27,27 @@ export async function validateBookingRules(
   supabase: SupabaseClient,
   event: EventForValidation,
   guest_count: number,
-  event_id: string
+  event_id: string,
+  user_email?: string
 ): Promise<string | null> {
   const eventDateIso = event?.event_date_iso;
+
+  // Un mismo email no puede reservar dos veces para el mismo evento — no
+  // importa si la primera vez fue por la página normal o por un link de
+  // RR.PP. distinto. Si esa reserva anterior fue cancelada, no cuenta.
+  if (user_email) {
+    const { data: already } = await supabase
+      .from("reservations")
+      .select("id")
+      .eq("event_id", event_id)
+      .eq("user_email", user_email)
+      .in("status", ["active", "used"])
+      .limit(1)
+      .maybeSingle();
+    if (already) {
+      return "Hai già una prenotazione per questo evento.";
+    }
+  }
 
   if (eventDateIso && Date.now() > getEventExpiryUTC(eventDateIso)) {
     return "Le prenotazioni per questo evento sono chiuse.";

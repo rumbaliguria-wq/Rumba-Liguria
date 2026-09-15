@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     supabase.from("events").select("title, max_tickets, max_per_person, event_date_iso, details").eq("id", event_id).single(),
   ]);
 
-  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id);
+  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email);
   if (bookingError) {
     return NextResponse.json({ error: bookingError }, { status: 400 });
   }
