@@ -1022,8 +1022,8 @@ export default function Home() {
 
                 <button
                   onClick={() => {
+                    setDetailEventId(featuredEvent.id);
                     handleReservation(featuredEvent);
-                    document.getElementById("eventi")?.scrollIntoView({ behavior: "smooth" });
                   }}
                   className="btn-shine flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold text-sm text-white transition-all active:scale-[0.97] w-full"
                   style={{ background: a, boxShadow: `0 0 20px ${a}40` }}
