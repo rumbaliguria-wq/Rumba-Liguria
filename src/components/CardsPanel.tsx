@@ -590,7 +590,10 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("toBlob failed");
       const link = document.createElement("a");
-      link.download = `tessera-${slugify(card.full_name)}-${card.code}.png`;
+      // Nombre único cada vez — si no, el navegador ve "mismo archivo de
+      // antes" y pregunta si querés volver a descargarlo en vez de bajarlo
+      // directo (pasa sobre todo al compartir la misma tessera más de una vez).
+      link.download = `tessera-${slugify(card.full_name)}-${card.code}-${Date.now()}.png`;
       link.href = URL.createObjectURL(blob);
       link.click();
       URL.revokeObjectURL(link.href);
