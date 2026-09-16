@@ -28,6 +28,7 @@ import {
   RotateCcw,
   IdCard,
   Globe,
+  MessageCircle,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
@@ -127,6 +128,8 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const [detailLoading, setDetailLoading] = useState(false);
   const [downloadLang, setDownloadLang] = useState<CardLanguage>(DEFAULT_CARD_LANGUAGE);
   const [downloadColor, setDownloadColor] = useState<string>(DEFAULT_CARD_COLOR);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [shareCustomNumber, setShareCustomNumber] = useState("");
 
   const [events, setEvents] = useState<EventOption[]>([]);
 
@@ -594,6 +597,23 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     } catch {
       toast.error("Impossibile generare l'immagine della tessera");
     }
+  };
+
+  // Genera y descarga la tessera, y abre WhatsApp ya en el chat de ese
+  // número — WhatsApp no permite adjuntar la imagen sola desde un link, así
+  // que el único paso manual que le queda al admin es tocar el clip y
+  // elegir la imagen recién descargada.
+  const shareCardToWhatsapp = (phone: string) => {
+    const digits = phone.replace(/[^0-9+]/g, "");
+    if (!digits) {
+      toast.error("Inserisci un numero valido");
+      return;
+    }
+    downloadCardImage(detailCard!, downloadLang, downloadColor);
+    window.open(`https://wa.me/${digits.replace(/^\+/, "")}`, "_blank", "noopener,noreferrer");
+    toast.success("Tessera scaricata — allegala dalla graffetta 📎 nella chat che si è aperta");
+    setShowShareMenu(false);
+    setShareCustomNumber("");
   };
 
   // ─── Manual check-in ───
@@ -1337,6 +1357,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 Scarica
               </button>
               <button
+                onClick={() => setShowShareMenu(true)}
+                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-green-600 text-white hover:bg-green-500 transition-all text-sm font-medium"
+              >
+                <MessageCircle size={14} />
+                Condividi
+              </button>
+              <button
                 onClick={() => { openEditForm(detailCard); setDetailCard(null); }}
                 className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-white/5 text-gray-300 hover:bg-white/10 transition-all text-sm font-medium"
               >
@@ -1352,12 +1379,68 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               </button>
               <button
                 onClick={() => handleDeleteCard(detailCard.id)}
-                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-sm font-medium"
+                className="col-span-2 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-sm font-medium"
               >
                 <Trash2 size={14} />
                 Elimina
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Share via WhatsApp menu */}
+      {showShareMenu && detailCard && createPortal(
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4" onClick={() => setShowShareMenu(false)}>
+          <div className="w-full max-w-sm bg-[#0a0a12] border border-blue-500/20 rounded-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <MessageCircle size={17} className="text-green-400" />
+                Condividi tessera
+              </h2>
+              <button onClick={() => setShowShareMenu(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
+                <X size={16} />
+              </button>
+            </div>
+
+            {detailCard.phone && (
+              <button
+                onClick={() => shareCardToWhatsapp(detailCard.phone!)}
+                className="w-full flex items-center gap-2.5 p-3 rounded-xl bg-green-600/15 border border-green-500/25 text-left hover:bg-green-600/25 transition-all"
+              >
+                <MessageCircle size={18} className="text-green-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">Al numero della tessera</p>
+                  <p className="text-xs text-gray-400 truncate">{detailCard.phone}</p>
+                </div>
+              </button>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-xs text-gray-400 block">{detailCard.phone ? "Oppure a un altro numero" : "Numero WhatsApp"}</label>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={shareCustomNumber}
+                  onChange={(e) => setShareCustomNumber(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && shareCardToWhatsapp(shareCustomNumber)}
+                  placeholder="+39 347 000 0000"
+                  className="flex-1 min-w-0 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-green-500/40"
+                />
+                <button
+                  onClick={() => shareCardToWhatsapp(shareCustomNumber)}
+                  disabled={!shareCustomNumber.trim()}
+                  className="px-4 py-2.5 rounded-xl bg-green-600 text-white text-sm font-medium hover:bg-green-500 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Invia
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              Si scarica la tessera e si apre la chat WhatsApp — allega l&apos;immagine dalla graffetta 📎 una volta lì.
+            </p>
           </div>
         </div>,
         document.body
