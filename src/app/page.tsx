@@ -962,6 +962,10 @@ export default function Home() {
           </div>
       }
 
+      {/* "Eventi" ancla acá — así "Vedi Eventi"/el menú siempre arrancan
+          mostrando el evento de hoy (destacado), no la grilla de abajo que
+          lo excluye a propósito para no repetirlo. */}
+      <div id="eventi" className="scroll-mt-20">
       {/* ─── Evento in Evidenza ─── */}
       {featuredEvent && (
         <section className="max-w-6xl mx-auto px-3 sm:px-4 pt-6 sm:pt-10 pb-16 sm:pb-20 relative z-10 animate-fade-in-up">
@@ -1043,7 +1047,7 @@ export default function Home() {
       )}
 
       {/* Events */}
-        <section id="eventi" className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10 scroll-mt-20">
+        <section className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
         {refPending ?
         <div className="flex justify-center py-16 sm:py-20 animate-fade-in">
               <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
@@ -1150,6 +1154,7 @@ export default function Home() {
           );
         })()}
         </section>
+      </div>
 
       {/* ─── Event Detail Popup ─── */}
       {detailEventId && (() => {
