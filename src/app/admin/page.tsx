@@ -4057,7 +4057,11 @@ export default function AdminPage() {
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
                 {statsDrilldown.list.length === 0 ? (
                   <p className="text-center text-gray-500 py-8 text-sm">Nessuna prenotazione</p>
-                ) : statsDrilldown.list.map((r) => (
+                ) : statsDrilldown.list.map((r) => {
+                  const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+                  const typeKey = ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
+                  const typeInfo = TYPE_META[typeKey];
+                  return (
                   <div key={r.id} className={`p-3 rounded-xl border ${r.status === "used" ? "bg-green-950/20 border-green-500/25" : r.status === "cancelled" ? "bg-white/3 border-white/8 opacity-60" : "bg-[#0a0a12] border-blue-500/15"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -4068,6 +4072,9 @@ export default function AdminPage() {
                           <span className="text-[10px] text-gray-500 flex items-center gap-0.5">
                             <Users size={9} className="inline" /> {r.guest_count} {r.guest_count === 1 ? "persona" : "persone"}
                           </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-white/5 ${typeInfo.color}`}>
+                            {typeInfo.label}
+                          </span>
                         </div>
                       </div>
                       <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium mt-0.5 ${r.status === "used" ? "bg-green-500/15 text-green-400" : r.status === "cancelled" ? "bg-gray-500/10 text-gray-400" : "bg-blue-500/10 text-blue-400"}`}>
@@ -4075,7 +4082,8 @@ export default function AdminPage() {
                       </span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               /* ── Stats overview ── */
