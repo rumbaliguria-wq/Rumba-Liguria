@@ -199,6 +199,8 @@ export default function AdminPage() {
   // QR Scanner
   const [showScanChooser, setShowScanChooser] = useState(false);
   const [cardScanTrigger, setCardScanTrigger] = useState(0);
+  const [showScanEventPicker, setShowScanEventPicker] = useState(false);
+  const [scanEventId, setScanEventId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean } | null>(null);
   const [scanConfirming, setScanConfirming] = useState(false);
@@ -232,6 +234,7 @@ export default function AdminPage() {
     setScanSuccess(false);
     setScanLoading(false);
     setScanConfirming(false);
+    setScanEventId(null);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -266,6 +269,11 @@ export default function AdminPage() {
         return;
       }
       const reservation = await infoRes.json();
+      if (scanEventId && reservation.event_id !== scanEventId) {
+        setScanError(`Biglietto di un altro evento (${reservation.events?.title || "sconosciuto"})`);
+        setScanLoading(false);
+        return;
+      }
       if (reservation.status === "used") { setScanError("Già utilizzato"); setScanLoading(false); return; }
       if (reservation.status === "cancelled") { setScanError("Prenotazione cancellata"); setScanLoading(false); return; }
       if (reservation.status === "expired") { setScanError("QR scaduto"); setScanLoading(false); return; }
@@ -293,7 +301,7 @@ export default function AdminPage() {
       });
     } catch { setScanError("Errore di connessione"); }
     finally { setScanLoading(false); }
-  }, []);
+  }, [scanEventId]);
 
   const handleConfirmEntry = useCallback(async () => {
     if (!scanResult) return;
@@ -3773,7 +3781,7 @@ export default function AdminPage() {
               </button>
             </div>
             <button
-              onClick={() => { setShowScanChooser(false); setShowScanner(true); startScanner(); }}
+              onClick={() => { setShowScanChooser(false); setShowScanEventPicker(true); }}
               className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
             >
               <div className="w-11 h-11 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
@@ -3800,13 +3808,55 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ─── Scan event picker: pick WHICH event's tickets to control ─── */}
+      {showScanEventPicker && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#0a0a12] border border-white/10 rounded-2xl p-5 space-y-3 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between flex-shrink-0">
+              <h2 className="text-white font-bold text-lg">Che evento controlli?</h2>
+              <button onClick={() => setShowScanEventPicker(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-gray-500 text-xs flex-shrink-0">Solo i biglietti di questo evento verranno accettati.</p>
+            <div className="overflow-y-auto space-y-2">
+              {events.filter(e => !e.archived).length === 0 && (
+                <p className="text-gray-500 text-sm text-center py-4">Nessun evento attivo</p>
+              )}
+              {events.filter(e => !e.archived).map(e => (
+                <button
+                  key={e.id}
+                  onClick={() => { setScanEventId(e.id); setShowScanEventPicker(false); setShowScanner(true); startScanner(); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
+                >
+                  <div className="w-9 h-9 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
+                    <Ticket size={16} className="text-green-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-white font-semibold text-sm truncate">{e.title}</p>
+                    <p className="text-gray-500 text-xs truncate">{e.event_date || "—"}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── QR Scanner Modal ─── */}
       {showScanner && (
           <div className="fixed inset-0 z-[200] flex flex-col bg-black">
             <div className="flex items-center justify-between px-4 py-3 bg-black/90 border-b border-white/10 flex-shrink-0">
-              <div className="flex items-center gap-2">
-              <Camera size={18} className="text-green-400" />
-              <span className="text-white font-semibold text-sm">Scansiona QR</span>
+              <div className="flex items-center gap-2 min-w-0">
+              <Camera size={18} className="text-green-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <span className="text-white font-semibold text-sm block">Scansiona QR</span>
+                {scanEventId && (
+                  <span className="text-green-400/70 text-[10px] block truncate">
+                    {events.find(e => e.id === scanEventId)?.title || "Evento"}
+                  </span>
+                )}
+              </div>
             </div>
             <button onClick={closeScanner} className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all active:scale-95">
               <X size={18} />
