@@ -77,6 +77,7 @@ create table if not exists public.reservations (
   status text not null default 'active', -- active | used | cancelled
   vip_number integer, -- numero all'interno della sua generazione (riparte da 1 ogni volta; solo per user_email = '__vip__')
   link_pin text, -- PIN de acceso a las estadísticas del RR.PP.; solo se usa en la fila "stub" del link (user_email = '__link__nombre__')
+  checked_in_at timestamptz, -- momento exacto del check-in (null si nunca entró o se deshizo el check-in)
   created_at timestamptz not null default now()
 );
 

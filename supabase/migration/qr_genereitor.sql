@@ -210,6 +210,10 @@ alter table public.events add column if not exists venue_name text;
 -- usa en la fila "stub" del link, user_email = '__link__nombre__').
 alter table public.reservations add column if not exists link_pin text;
 
+-- Hora exacta del check-in de cada reserva (para poder mostrarla y probarla
+-- si un cliente dice que nunca entró).
+alter table public.reservations add column if not exists checked_in_at timestamptz;
+
 create table if not exists public.hero_photos (
   id uuid primary key default gen_random_uuid(),
   url text not null,

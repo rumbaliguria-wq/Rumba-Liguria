@@ -86,7 +86,7 @@ export async function PATCH(
     }
     const { error } = await supabase
       .from("reservations")
-      .update({ status: "used" })
+      .update({ status: "used", checked_in_at: new Date().toISOString() })
       .eq("id", reservation.id);
     if (error) return NextResponse.json({ error: "Failed to update" }, { status: 500 });
     return NextResponse.json({ success: true, newStatus: "used", is_vip: true });
@@ -102,9 +102,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Già utilizzato" }, { status: 400 });
   }
 
+  // Se guarda la hora exacta del check-in (o se borra si se deshace, para
+  // que no quede una hora vieja en una reserva que ya no está "entrata").
   const { error } = await supabase
     .from("reservations")
-    .update({ status: newStatus })
+    .update({ status: newStatus, checked_in_at: newStatus === "used" ? new Date().toISOString() : null })
     .eq("id", reservation.id);
 
   if (error) {
