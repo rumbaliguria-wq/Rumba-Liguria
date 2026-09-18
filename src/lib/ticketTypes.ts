@@ -1,6 +1,7 @@
 export interface TicketType {
   name: string;
   color: string;
+  price?: number;
 }
 
 const TT_MARKER = "|||TTYPES:";

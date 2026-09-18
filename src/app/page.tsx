@@ -42,12 +42,24 @@ import {
   ArrowLeft,
   Sparkles,
   UserPlus,
+  ShoppingCart,
+  Trash2,
 } from "lucide-react";
 import Image from "next/image";
 import ThemeToggle from "@/components/ThemeToggle";
 import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
+import { unitPriceCents, formatEUR } from "@/lib/pricing";
+
+interface CartLine {
+  eventId: string;
+  title: string;
+  ticketType?: string;
+  count: number;
+  unitCents: number;
+  maxPerPerson?: number | null;
+}
 
 interface GalleryItem {
   id: string;
@@ -155,6 +167,10 @@ export default function Home() {
   const [reservation, setReservation] = useState<{eventId: string;count: number;ticketType?: string;} | null>(null);
   const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypes?: {name: string; color: string}[];} | null>(null);
   const [reserving, setReserving] = useState(false);
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cartLoaded, setCartLoaded] = useState(false);
+  const [showCart, setShowCart] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   // Ticks once a second so the "Evento in Evidenza" countdown stays live.
@@ -607,6 +623,95 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rumba_cart");
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        setCart(parsed.filter((l): l is CartLine => l && typeof l.eventId === "string" && Number.isInteger(l.count) && typeof l.unitCents === "number"));
+      }
+    } catch {}
+    setCartLoaded(true);
+    const resetOnBack = (e: PageTransitionEvent) => { if (e.persisted) setCheckingOut(false); };
+    window.addEventListener("pageshow", resetOnBack);
+    return () => window.removeEventListener("pageshow", resetOnBack);
+  }, []);
+
+  useEffect(() => {
+    if (!cartLoaded) return;
+    try { localStorage.setItem("rumba_cart", JSON.stringify(cart)); } catch {}
+  }, [cart, cartLoaded]);
+
+  const addToCart = (event: Event) => {
+    if (!reservation || !userEmail) return;
+    if (event.ticket_types && event.ticket_types.length > 0 && !reservation.ticketType) {
+      toast.error(t(lang, "cart.chooseType"));
+      return;
+    }
+    const line: CartLine = {
+      eventId: event.id,
+      title: event.title,
+      ticketType: reservation.ticketType,
+      count: reservation.count,
+      unitCents: unitPriceCents(event.price, event.ticket_types, reservation.ticketType),
+      maxPerPerson: event.max_per_person,
+    };
+    // Una sola línea por evento: el servidor no permite reservar dos veces el mismo evento.
+    setCart((prev) => [...prev.filter((l) => l.eventId !== event.id), line]);
+    setReservation(null);
+    setDetailEventId(null);
+    setShowCart(true);
+    toast.success(t(lang, "cart.added"));
+  };
+
+  const changeCartCount = (eventId: string, delta: number) => {
+    setCart((prev) => prev.map((l) => {
+      if (l.eventId !== eventId) return l;
+      const max = l.maxPerPerson ? Math.min(l.maxPerPerson, 20) : 20;
+      return { ...l, count: Math.min(max, Math.max(1, l.count + delta)) };
+    }));
+  };
+
+  const cartTotalCents = cart.reduce((s, l) => s + l.unitCents * l.count, 0);
+  const cartGuests = cart.reduce((s, l) => s + l.count, 0);
+
+  const checkout = async () => {
+    if (!userEmail) {
+      setShowCart(false);
+      setShowAuth(true);
+      return;
+    }
+    setCheckingOut(true);
+    try {
+      const referral = sessionStorage.getItem("rumba_ref") || undefined;
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail,
+          items: cart.map((l) => ({ event_id: l.eventId, ticket_type: l.ticketType, guest_count: l.count, referral })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || t(lang, "cart.error"));
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      if (data.free) {
+        const first = data.result?.tickets?.[0];
+        if (first) setQrData({ codes: first.codes, eventTitle: first.event_title, guestCount: first.codes.length });
+        setCart([]);
+        setShowCart(false);
+        fetchUserReservations(userEmail);
+        toast.success(t(lang, "cart.freeDone"));
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t(lang, "cart.error"));
+    }
+    setCheckingOut(false);
+  };
+
   const saveQrImage = async () => {
     const containers = document.querySelectorAll(".qr-code-container");
     if (!containers.length) return;
@@ -815,6 +920,21 @@ export default function Home() {
               </div>
 
               <ThemeToggle className="!w-8 !h-8 sm:!w-9 sm:!h-9" />
+
+              {cart.length > 0 && (
+                <button
+                  onClick={() => setShowCart(true)}
+                  title={t(lang, "cart.title")}
+                  aria-label={t(lang, "cart.title")}
+                  className="relative flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/5 hover:bg-white/10 transition-all text-gray-200"
+                  style={{ border: `1px solid ${a30}` }}
+                >
+                  <ShoppingCart size={15} />
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center" style={{ background: a }}>
+                    {cartGuests}
+                  </span>
+                </button>
+              )}
 
               {hasAdminSession && (
                 <button
@@ -1353,6 +1473,11 @@ export default function Home() {
                                 style={reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
                               >
                                 <span className="block">{tt.name}</span>
+                                {unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name) > 0 && (
+                                  <span className="block text-[11px] font-bold mt-0.5" style={{ color: tt.color }}>
+                                    {formatEUR(unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name))}
+                                  </span>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -1389,24 +1514,35 @@ export default function Home() {
                         >
                           {t(lang, "events.cancel")}
                         </button>
-                        <button
-                          onClick={() => confirmReservation(detailEvent)}
-                          disabled={reserving}
-                          className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50"
-                        >
-                          {reserving ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <CheckCircle size={16} />
-                          )}
-                          {(() => {
-                            const selectedType = detailEvent.ticket_types?.find(tt => tt.name === reservation.ticketType);
-                            if (selectedType?.price) {
-                              return `Paga €${(selectedType.price * reservation.count).toFixed(2).replace(/\.00$/, "")}`;
-                            }
-                            return t(lang, "reservation.confirm");
-                          })()}
-                        </button>
+                        {(() => {
+                          const unit = unitPriceCents(detailEvent.price, detailEvent.ticket_types, reservation.ticketType);
+                          if (unit > 0) {
+                            return (
+                              <button
+                                onClick={() => addToCart(detailEvent)}
+                                className="flex-1 py-2.5 sm:py-2 rounded-lg text-white transition-all text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
+                                style={{ background: a }}
+                              >
+                                <ShoppingCart size={16} />
+                                {t(lang, "cart.add")} · {formatEUR(unit * reservation.count)}
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              onClick={() => confirmReservation(detailEvent)}
+                              disabled={reserving}
+                              className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50"
+                            >
+                              {reserving ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <CheckCircle size={16} />
+                              )}
+                              {t(lang, "reservation.confirm")}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1894,6 +2030,92 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+        {/* Cart */}
+        {showCart && (
+          <div
+            className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-fade-in"
+            onClick={() => setShowCart(false)}>
+            <div
+              className="w-full sm:max-w-md max-h-[90dvh] flex flex-col bg-[#090914] border-t sm:border rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 glow-border animate-fade-in-up"
+              style={{ borderColor: a30 }}
+              onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart size={20} style={{ color: a }} />
+                  <h3 className="text-lg font-bold text-white">{t(lang, "cart.title")}</h3>
+                </div>
+                <button onClick={() => setShowCart(false)} aria-label={t(lang, "cart.close")} className="p-2 rounded-full hover:bg-white/5 text-gray-400">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {cart.length === 0 ? (
+                <p className="text-center text-gray-500 text-sm py-10">{t(lang, "cart.empty")}</p>
+              ) : (
+                <>
+                  <div className="space-y-3 overflow-y-auto flex-1 min-h-0">
+                    {cart.map((l) => (
+                      <div key={l.eventId} className="p-3 rounded-xl bg-white/[0.04] border border-white/10">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{l.title}</p>
+                            {l.ticketType && <p className="text-xs text-gray-400">{l.ticketType}</p>}
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              {l.unitCents > 0 ? `${formatEUR(l.unitCents)} ${t(lang, "cart.perPerson")}` : t(lang, "events.free")}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setCart((prev) => prev.filter((x) => x.eventId !== l.eventId))}
+                            aria-label={t(lang, "cart.remove")}
+                            title={t(lang, "cart.remove")}
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0">
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <div className="flex items-center gap-3">
+                            <button onClick={() => changeCartCount(l.eventId, -1)} disabled={l.count <= 1} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-white disabled:opacity-30">-</button>
+                            <span className="text-base font-bold w-6 text-center" style={{ color: a }}>{l.count}</span>
+                            <button onClick={() => changeCartCount(l.eventId, 1)} disabled={l.count >= (l.maxPerPerson ? Math.min(l.maxPerPerson, 20) : 20)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-white disabled:opacity-30">+</button>
+                          </div>
+                          <span className="text-sm font-bold text-white">{formatEUR(l.unitCents * l.count)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-white/10 flex-shrink-0 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-400">{t(lang, "cart.total")}</span>
+                      <span className="text-xl font-extrabold text-white">{formatEUR(cartTotalCents)}</span>
+                    </div>
+                    <button
+                      onClick={checkout}
+                      disabled={checkingOut}
+                      className="w-full py-3.5 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-60"
+                      style={{ background: `linear-gradient(90deg, ${a}, ${a}cc)`, boxShadow: `0 10px 28px ${a}30` }}>
+                      {checkingOut ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          {t(lang, "cart.processing")}
+                        </>
+                      ) : (
+                        <>
+                          <LockKeyhole size={16} />
+                          {t(lang, "cart.pay")} · {formatEUR(cartTotalCents)}
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[11px] text-gray-500 text-center flex items-center justify-center gap-1.5">
+                      <LockKeyhole size={11} /> {t(lang, "cart.secure")}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Profile / My Reservations Modal */}
         {showProfile &&

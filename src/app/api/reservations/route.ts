@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
+import { getUnitPriceCents } from "@/lib/pricing";
 
 export async function GET() {
   const supabase = getServiceClient();
@@ -26,8 +27,13 @@ export async function POST(req: NextRequest) {
   // Get user name and event info in parallel
   const [{ data: user }, { data: event }] = await Promise.all([
     supabase.from("users").select("phone").eq("email", user_email).single(),
-    supabase.from("events").select("title, max_tickets, max_per_person, event_date_iso, details").eq("id", event_id).single(),
+    supabase.from("events").select("title, price, max_tickets, max_per_person, event_date_iso, details").eq("id", event_id).single(),
   ]);
+
+  // Los eventos/tipos con precio solo se compran por el carrito (Stripe).
+  if (event && getUnitPriceCents(event, ticket_type) > 0) {
+    return NextResponse.json({ error: "Questo biglietto è a pagamento: aggiungilo al carrello." }, { status: 402 });
+  }
 
   const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email);
   if (bookingError) {

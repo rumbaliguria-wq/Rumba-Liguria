@@ -2432,9 +2432,10 @@ export default function AdminPage() {
                             value={formData.price === "free" ? "" : formData.price}
                             onChange={(e) => setFormData((p) => ({ ...p, price: e.target.value || "free" }))}
                             className="flex-1 min-w-0 px-3 sm:px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-sm"
-                            placeholder="es. 10 EUR"
+                            placeholder="es. 10"
                           />
                         </div>
+                        <p className="text-[10px] text-gray-500 mt-1">Se scrivi solo un importo (es. 10 o €10) l&apos;evento si paga online con carta. Con testo libero (es. &quot;Ingresso libero&quot;) resta gratis. Il prezzo di un tipo di biglietto ha la precedenza.</p>
                       </div>
 
                         {/* Maps URL — Place Autocomplete */}
@@ -2561,8 +2562,26 @@ export default function AdminPage() {
                                   setFormTicketTypes(next);
                                 }}
                                 placeholder="es. Entrada Hombre"
-                                className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
+                                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
                               />
+                              <div className="relative w-20 flex-shrink-0">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">€</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  inputMode="decimal"
+                                  value={tt.price ?? ""}
+                                  onChange={(e) => {
+                                    const next = [...formTicketTypes];
+                                    const v = parseFloat(e.target.value);
+                                    next[i] = { ...next[i], price: Number.isFinite(v) && v > 0 ? v : undefined };
+                                    setFormTicketTypes(next);
+                                  }}
+                                  placeholder="0"
+                                  className="w-full pl-6 pr-1 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
+                                />
+                              </div>
                               <input
                                 type="color"
                                 value={tt.color}
@@ -2589,7 +2608,7 @@ export default function AdminPage() {
                               <Plus size={14} /> Aggiungi tipo
                             </button>
                           )}
-                          <p className="text-[10px] text-gray-500">Dejá el precio vacío para que ese tipo de entrada sea gratis (reserva directa, sin pasar por pago online).</p>
+                          <p className="text-[10px] text-gray-500">Prezzo in € per persona. Lascialo vuoto (o 0) e quel tipo sarà gratis (prenotazione diretta); con un importo si paga online con carta tramite il carrello.</p>
                         </div>
                       </div>
 
