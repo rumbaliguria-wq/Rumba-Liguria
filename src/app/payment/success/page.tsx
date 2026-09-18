@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Download } from "lucide-react";
 import { type Lang, t } from "@/lib/translations";
 import { formatEUR } from "@/lib/pricing";
 import type { PaymentResult } from "@/lib/payments";
@@ -13,6 +13,57 @@ type Outcome =
   | { state: "loading" }
   | { state: "failed" }
   | { state: "done"; result: PaymentResult };
+
+// Dibuja la entrada (nombre del evento + QR + código) en un PNG y lo descarga.
+// Nombre único con hora para que el celular no pregunte "¿volver a descargar?".
+async function saveTicket(eventTitle: string, ticketType: string | undefined, code: string) {
+  const svg = document.querySelector(`#qr-${code} svg`);
+  if (!svg) return;
+
+  const W = 720, qr = 560, top = 140, bottom = 120;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = top + qr + bottom;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = "center";
+
+  let size = 38;
+  ctx.fillStyle = "#111111";
+  do {
+    ctx.font = `bold ${size}px Arial, sans-serif`;
+    size -= 2;
+  } while (ctx.measureText(eventTitle).width > W - 60 && size > 18);
+  ctx.fillText(eventTitle, W / 2, 68);
+  if (ticketType) {
+    ctx.font = "26px Arial, sans-serif";
+    ctx.fillStyle = "#555555";
+    ctx.fillText(ticketType, W / 2, 108);
+  }
+
+  const svgData = new XMLSerializer().serializeToString(svg);
+  await new Promise<void>((resolve) => {
+    const img = new window.Image();
+    img.onload = () => { ctx.drawImage(img, (W - qr) / 2, top, qr, qr); resolve(); };
+    img.onerror = () => resolve();
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+  });
+
+  ctx.fillStyle = "#111111";
+  ctx.font = "bold 30px monospace";
+  ctx.fillText(code, W / 2, top + qr + 52);
+  ctx.fillStyle = "#777777";
+  ctx.font = "22px Arial, sans-serif";
+  ctx.fillText("Rumba Liguria", W / 2, top + qr + 90);
+
+  const link = document.createElement("a");
+  link.download = `biglietto-${code}-${Date.now()}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
 
 function SuccessContent() {
   const sessionId = useSearchParams().get("session_id");
@@ -105,11 +156,18 @@ function SuccessContent() {
                         <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">
                           {t(lang, "payment.ticket")} {i + 1}
                         </p>
-                        <div className="inline-block p-3 bg-white rounded-xl">
+                        <div id={`qr-${code}`} className="inline-block p-3 bg-white rounded-xl">
                           <QRCodeSVG value={`${origin}/verify/${code}`} size={160} level="M" />
                         </div>
                         <p className="font-mono text-xs text-gray-400 mt-2">{code}</p>
                         <p className="text-[11px] text-gray-500">{t(lang, "payment.showQr")}</p>
+                        <button
+                          onClick={() => saveTicket(tk.event_title, tk.ticket_type, code)}
+                          className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border border-white/15 hover:bg-white/5 active:scale-95 transition-all"
+                          style={{ color: accent }}
+                        >
+                          <Download size={14} /> {t(lang, "payment.download")}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -117,10 +175,28 @@ function SuccessContent() {
               ))}
             </div>
 
-            <div className="text-center mt-8">
+            <div className="text-center mt-8 space-y-3">
+              {outcome.result.tickets.reduce((n, tk) => n + tk.codes.length, 0) > 1 && (
+                <button
+                  onClick={async () => {
+                    for (const tk of outcome.result.tickets) {
+                      for (const code of tk.codes) {
+                        await saveTicket(tk.event_title, tk.ticket_type, code);
+                        await new Promise((r) => setTimeout(r, 500));
+                      }
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold border border-white/15 hover:bg-white/5 active:scale-95 transition-all"
+                  style={{ color: accent }}
+                >
+                  <Download size={16} /> {t(lang, "payment.downloadAll")}
+                </button>
+              )}
+              <div>
               <Link href="/" className="inline-block px-6 py-3 rounded-xl font-semibold" style={{ background: accent }}>
                 {t(lang, "payment.backHome")}
               </Link>
+              </div>
             </div>
           </div>
         )}
