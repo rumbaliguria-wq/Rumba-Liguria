@@ -28,9 +28,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
     return (
-      <html lang="it" suppressHydrationWarning>
+      <html lang="it" translate="no" suppressHydrationWarning>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+          {/* El sitio ya tiene su propio selector de idioma. Si el navegador lo
+              traduce solo (Chrome/Google Translate), modifica el DOM y React se
+              rompe con "removeChild" al cambiar de idioma o enviar formularios. */}
+          <meta name="google" content="notranslate" />
         </head>
         <body className={`${inter.variable} antialiased font-sans`}>
         {/* Dark stays the default with no class on <html> (matches the site's

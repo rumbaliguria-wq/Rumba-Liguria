@@ -299,6 +299,10 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const changeLang = (l: Lang) => {
     setLang(l);
     localStorage.setItem("rumba_lang", l);
