@@ -39,6 +39,7 @@ import {
     ChevronLeft,
     ChevronRight,
     CreditCard,
+    Copy,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -160,6 +161,7 @@ export default function AdminPage() {
   const [accentColor, setAccentColor] = useState("#3b82f6");
   const [colorSaving, setColorSaving] = useState(false);
   const [selectedEventFilter, setSelectedEventFilter] = useState<string>("all");
+  const [reservationTypeFilter, setReservationTypeFilter] = useState<string>("all");
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
@@ -3092,17 +3094,31 @@ export default function AdminPage() {
                     ? activeReservations
                     : activeReservations.filter(r => r.events?.title === events.find(e => e.id === selectedEventFilter)?.title);
                   const q = reservationSearch.toLowerCase().trim();
-                  const filtered = q
+                  const baseFiltered = q
                     ? byEvent.filter(r =>
                         r.user_name?.toLowerCase().includes(q) ||
                         r.user_email?.toLowerCase().includes(q)
                       )
                     : byEvent;
                   const usersByEmail = new Map(users.map(u => [u.email.toLowerCase(), u]));
-                  const typeCount = (type: string) => filtered.filter(r => {
+                  const matchesType = (r: Reservation, type: string) => {
                     const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
                     return type === "NONE" ? ru?.source !== "registered" : ru?.userType === type;
-                  }).length;
+                  };
+                  const typeCount = (type: string) => baseFiltered.filter(r => matchesType(r, type)).length;
+                  const filtered = reservationTypeFilter === "all"
+                    ? baseFiltered
+                    : baseFiltered.filter(r => matchesType(r, reservationTypeFilter));
+                  const copyNames = () => {
+                    const names = filtered
+                      .filter(r => r.status !== "cancelled" && r.user_email && !r.user_email.startsWith("__link__") && r.user_email !== "__vip__")
+                      .map(r => r.user_name)
+                      .filter(Boolean);
+                    if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                    navigator.clipboard.writeText(names.join("\n"))
+                      .then(() => toast.success(`${names.length} nomi copiati!`))
+                      .catch(() => toast.error("Errore durante la copia"));
+                  };
                   return (
                     <>
                       <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
@@ -3135,18 +3151,37 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-3">
                         {[
                           { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
                           { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
                           { type: "ALTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
                           { type: "NONE", label: "Non registrato", color: "text-gray-400", border: "border-white/10" },
                         ].map(({ type, label, color, border }) => (
-                          <div key={type} className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border ${border}`}>
+                          <button
+                            key={type}
+                            onClick={() => setReservationTypeFilter(prev => prev === type ? "all" : type)}
+                            className={`text-left p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all ${reservationTypeFilter === type ? "border-white/40 ring-1 ring-white/20" : border} hover:border-white/25`}
+                          >
                             <p className={`text-lg sm:text-2xl font-bold ${color}`}>{typeCount(type)}</p>
                             <p className="text-[10px] sm:text-xs text-gray-500">{label}</p>
-                          </div>
+                          </button>
                         ))}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+                        <p className="text-[11px] text-gray-500">
+                          {reservationTypeFilter === "all" ? "Tutti i tipi" : `Filtrato: ${reservationTypeFilter === "NONE" ? "Non registrato" : reservationTypeFilter.charAt(0) + reservationTypeFilter.slice(1).toLowerCase()}`}
+                          {reservationTypeFilter !== "all" && (
+                            <button onClick={() => setReservationTypeFilter("all")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+                          )}
+                        </p>
+                        <button
+                          onClick={copyNames}
+                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                        >
+                          <Copy size={12} /> Copia nomi
+                        </button>
                       </div>
 
                       {filtered.length > 0 && (
