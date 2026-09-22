@@ -975,12 +975,24 @@ export default function Home() {
         <section className="max-w-6xl mx-auto px-3 sm:px-4 pt-6 sm:pt-10 pb-16 sm:pb-20 relative z-10 animate-fade-in-up">
           <div className="rounded-2xl sm:rounded-3xl overflow-hidden glass-panel" style={{ border: `1px solid ${a30}` }}>
             <div className="grid lg:grid-cols-[300px_1fr_320px]">
-              {/* Flyer */}
+              {/* Flyer — en el celular se ve completa (sin recortar); en
+                  escritorio se recorta para encajar en la columna fija. */}
               {featuredEvent.flyer_url && (
-                <div className="relative h-56 lg:h-auto">
-                  <Image src={featuredEvent.flyer_url} alt={featuredEvent.title} fill sizes="(max-width:1024px) 100vw, 300px" className="object-cover" />
-                  <div className="absolute inset-0 lg:bg-gradient-to-r lg:from-transparent lg:to-[#0a0a12] bg-gradient-to-t from-[#0a0a12] to-transparent" />
-                </div>
+                <>
+                  <div className="lg:hidden relative w-full">
+                    {(() => {
+                      const [rw, rh] = featuredEvent.flyer_ratio === "9:16" ? [900, 1600] : featuredEvent.flyer_ratio === "1:1" ? [1000, 1000] : [1600, 900];
+                      return (
+                        <Image src={featuredEvent.flyer_url} alt={featuredEvent.title} width={rw} height={rh} sizes="100vw" className="w-full h-auto block" priority />
+                      );
+                    })()}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a12] to-transparent pointer-events-none" />
+                  </div>
+                  <div className="hidden lg:block relative lg:h-auto">
+                    <Image src={featuredEvent.flyer_url} alt={featuredEvent.title} fill sizes="300px" className="object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent to-[#0a0a12]" />
+                  </div>
+                </>
               )}
 
               {/* Info */}
