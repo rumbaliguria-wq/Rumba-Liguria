@@ -2,13 +2,18 @@
 
 import Image from "next/image";
 import { use, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Camera, CheckCircle2, LockKeyhole, RotateCcw, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Clock, LockKeyhole, RotateCcw, Users, XCircle } from "lucide-react";
 
 interface CardResult {
   full_name: string;
   id_type: string | null;
   card_number: number | null;
   photo_url: string | null;
+}
+
+interface TodayEntry {
+  full_name: string;
+  scanned_at: string;
 }
 
 function typeLabel(idType: string | null): string {
@@ -29,6 +34,8 @@ export default function ColaboradorPage({ params }: { params: Promise<{ name: st
   const [loginError, setLoginError] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [todayCount, setTodayCount] = useState(0);
+  const [todayList, setTodayList] = useState<TodayEntry[]>([]);
+  const [showTodayList, setShowTodayList] = useState(false);
 
   const [showScanner, setShowScanner] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
@@ -58,6 +65,7 @@ export default function ColaboradorPage({ params }: { params: Promise<{ name: st
         return;
       }
       setTodayCount(data.today_count || 0);
+      setTodayList(data.today_list || []);
       setLoggedIn(true);
     } catch {
       setLoginError("Impossibile connettersi al server. Riprova.");
@@ -101,6 +109,7 @@ export default function ColaboradorPage({ params }: { params: Promise<{ name: st
       }
       setScanResult({ card: data.card, valid: data.valid });
       setTodayCount(data.today_count ?? todayCount);
+      if (data.today_list) setTodayList(data.today_list);
     } catch {
       setScanError("Errore di connessione");
     } finally {
@@ -221,6 +230,31 @@ export default function ColaboradorPage({ params }: { params: Promise<{ name: st
             >
               <Camera size={18} /> Scansiona tessera
             </button>
+
+            {todayCount > 0 && (
+              <div className="mt-4 text-left">
+                <button
+                  onClick={() => setShowTodayList((v) => !v)}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 py-2"
+                >
+                  <Users size={13} />
+                  {showTodayList ? "Nascondi elenco" : "Vedi chi ho validato oggi"}
+                </button>
+                {showTodayList && (
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                    {todayList.map((entry, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2">
+                        <span className="text-sm text-gray-200 truncate">{entry.full_name}</span>
+                        <span className="flex items-center gap-1 text-[11px] text-gray-500 flex-shrink-0">
+                          <Clock size={11} />
+                          {new Date(entry.scanned_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div>

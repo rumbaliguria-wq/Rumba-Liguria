@@ -33,16 +33,23 @@ export async function POST(req: NextRequest) {
   if (!partner) return NextResponse.json({ error: "Link o PIN non corretti" }, { status: 401 });
 
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const { data: recentScans } = await supabase
-    .from("card_scans")
-    .select("id")
-    .eq("partner_id", partner.id)
-    .gte("scanned_at", new Date(dayAgo).toISOString());
-  const todayCount = recentScans?.length || 0;
+  const getTodayList = async () => {
+    const { data } = await supabase
+      .from("card_scans")
+      .select("scanned_at, client_cards(full_name)")
+      .eq("partner_id", partner.id)
+      .gte("scanned_at", new Date(dayAgo).toISOString())
+      .order("scanned_at", { ascending: false });
+    return (data || []).map((s) => ({
+      full_name: (s.client_cards as unknown as { full_name: string } | null)?.full_name || "—",
+      scanned_at: s.scanned_at,
+    }));
+  };
 
   if (!code?.trim()) {
-    // Solo login: confirma que el link/PIN sirven y muestra el contador.
-    return NextResponse.json({ ok: true, partner_name: partner.name, today_count: todayCount });
+    // Solo login: confirma que el link/PIN sirven y muestra el contador + la lista de hoy.
+    const todayList = await getTodayList();
+    return NextResponse.json({ ok: true, partner_name: partner.name, today_count: todayList.length, today_list: todayList });
   }
 
   const { data: card } = await supabase
@@ -72,6 +79,8 @@ export async function POST(req: NextRequest) {
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
+  const todayList = await getTodayList();
+
   return NextResponse.json({
     valid: !isDuplicate,
     already_used: isDuplicate,
@@ -81,6 +90,7 @@ export async function POST(req: NextRequest) {
       card_number: card.card_number,
       photo_url: card.photo_url,
     },
-    today_count: todayCount + (isDuplicate ? 0 : 1),
+    today_count: todayList.length,
+    today_list: todayList,
   });
 }
