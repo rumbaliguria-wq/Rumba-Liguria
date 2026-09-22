@@ -40,6 +40,7 @@ import {
     ChevronRight,
     CreditCard,
     Copy,
+    Link2,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -198,6 +199,7 @@ export default function AdminPage() {
   const [editingPinKey, setEditingPinKey] = useState<string | null>(null);
   const [pinDraft, setPinDraft] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
+  const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -2143,6 +2145,13 @@ export default function AdminPage() {
                               <div key={`${stats.name}::${stats.eventTitle}`} className="p-2 rounded-lg bg-white/5">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2 min-w-0">
+                                    <button
+                                      onClick={() => setExpandedLinkKey(v => v === pinKey ? null : pinKey)}
+                                      title="Vedi i link"
+                                      className="p-1 rounded text-gray-500 hover:text-blue-400 hover:bg-white/5 flex-shrink-0"
+                                    >
+                                      <Link2 size={12} />
+                                    </button>
                                     <span className="text-xs font-medium text-white truncate">{stats.name}</span>
                                     <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
                                   </div>
@@ -2187,6 +2196,35 @@ export default function AdminPage() {
                                     </button>
                                   </div>
                                 )}
+                                {expandedLinkKey === pinKey && (() => {
+                                  const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                                  const customerLink = `${origin}/?ref=${encodeURIComponent(stats.name)}`;
+                                  const rrppLink = `${origin}/rrpp/${encodeURIComponent(stats.name)}`;
+                                  return (
+                                    <div className="space-y-1.5 mt-2 pt-2 border-t border-white/10">
+                                      <div>
+                                        <p className="text-[9px] text-gray-500 px-1 mb-1">Link per far prenotare la gente:</p>
+                                        <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-400 flex-1 truncate">{customerLink}</span>
+                                          <button
+                                            onClick={() => { navigator.clipboard.writeText(customerLink).then(() => toast.success("Link copiato!")); }}
+                                            className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30 flex-shrink-0"
+                                          >Copia link</button>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-[9px] text-gray-500 px-1 mb-1">Link per le statistiche del RR.PP.:</p>
+                                        <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-400 flex-1 truncate">{rrppLink}</span>
+                                          <button
+                                            onClick={() => { navigator.clipboard.writeText(rrppLink).then(() => toast.success("Link copiato!")); }}
+                                            className="px-2 py-1 rounded bg-purple-500/20 text-purple-400 text-[10px] font-medium hover:bg-purple-500/30 flex-shrink-0"
+                                          >Copia link</button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               );
                             })}
