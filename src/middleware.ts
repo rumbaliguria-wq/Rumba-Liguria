@@ -34,6 +34,11 @@ function requiresAdmin(path: string, method: string): boolean {
 
   if (path === "/api/custom-links" && (m === "POST" || m === "DELETE")) return true;
 
+  // Gestión de colaboradores externos (bares/locales que validan tessere) —
+  // OJO: /api/colaborador (sin "s") es la ruta PÚBLICA del propio bar, que
+  // se protege solo con su nombre+PIN, no con la sesión de admin.
+  if (path === "/api/partners") return true;
+
   if (path === "/api/events" && mutation) return true;
   if (/^\/api\/events\/[^/]+$/.test(path) && mutation) return true;
   if (path === "/api/events/reorder") return true;
