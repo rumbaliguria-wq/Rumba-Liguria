@@ -195,6 +195,9 @@ export default function AdminPage() {
   const [reassignEventId, setReassignEventId] = useState("");
   const [reassigning, setReassigning] = useState(false);
   const [showArchivedLinkStats, setShowArchivedLinkStats] = useState(false);
+  const [editingPinKey, setEditingPinKey] = useState<string | null>(null);
+  const [pinDraft, setPinDraft] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1116,6 +1119,26 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setReassigning(false); }
+  };
+
+  const handleChangePin = async (name: string, eventId: string) => {
+    if (!pinDraft.trim()) { toast.error("Inserisci il nuovo PIN"); return; }
+    setPinSaving(true);
+    try {
+      const res = await fetch("/api/custom-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: eventId, name, pin: pinDraft.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Nuovo PIN di "${name}": ${pinDraft.trim()}`);
+        setEditingPinKey(null);
+        setPinDraft("");
+        fetchReservationsRef.current?.();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPinSaving(false); }
   };
 
   const handleDeleteUser = async (id: string, email?: string) => {
@@ -2075,12 +2098,13 @@ export default function AdminPage() {
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
                     const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null }> = {};
-                    // El PIN vive en la fila "stub" del link (user_email = __link__nombre__),
-                    // no en las reservas de sus clientes — se lo pega por nombre + evento.
-                    const pinByKey: Record<string, string | null | undefined> = {};
+                    // Primero se listan todos los links creados (fila "stub",
+                    // user_email = __link__nombre__), aunque todavía no tengan
+                    // ninguna reserva — así siempre se puede ver/cambiar su PIN.
                     reservations.forEach(r => {
                       if (r.user_email?.startsWith("__link__")) {
-                        pinByKey[`${r.user_name}::${r.event_id}`] = r.link_pin;
+                        const key = `${r.user_name}::${r.event_id}`;
+                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin };
                       }
                     });
                     reservations.forEach(r => {
@@ -2088,7 +2112,7 @@ export default function AdminPage() {
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: pinByKey[key] };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
                       }
@@ -2096,7 +2120,7 @@ export default function AdminPage() {
                     const all = Object.values(linkStats);
                     const active = all.filter(s => !s.archived);
                     const archived = all.filter(s => s.archived);
-                    if (all.length === 0) return <p className="text-xs text-gray-500">Nessuna prenotazione da link ancora</p>;
+                    if (all.length === 0) return <p className="text-xs text-gray-500">Nessun link creato ancora</p>;
 
                     // Archived stats are grouped by event — you open the event
                     // that already happened to see who brought how many people.
@@ -2110,22 +2134,62 @@ export default function AdminPage() {
                     return (
                       <>
                         {active.length === 0 ? (
-                          <p className="text-xs text-gray-500">Nessuna prenotazione da link per eventi attivi</p>
+                          <p className="text-xs text-gray-500">Nessun link per eventi attivi</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                            {active.map((stats) => (
-                              <div key={`${stats.name}::${stats.eventTitle}`} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs font-medium text-white truncate">{stats.name}</span>
-                                  <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
+                            {active.map((stats) => {
+                              const pinKey = `${stats.name}::${stats.eventId}`;
+                              return (
+                              <div key={`${stats.name}::${stats.eventTitle}`} className="p-2 rounded-lg bg-white/5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-xs font-medium text-white truncate">{stats.name}</span>
+                                    <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    {editingPinKey !== pinKey && (
+                                      <button
+                                        onClick={() => { setEditingPinKey(pinKey); setPinDraft(""); }}
+                                        className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                                        title="Cambia il PIN"
+                                      >
+                                        {stats.pin ? `PIN ${stats.pin}` : "Imposta PIN"}
+                                      </button>
+                                    )}
+                                    <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
+                                    <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  {stats.pin && <span className="text-[10px] text-gray-500 font-mono" title="PIN del RR.PP.">PIN {stats.pin}</span>}
-                                  <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
-                                  <span className="text-[10px] text-green-400">{stats.used} entrati</span>
-                                </div>
+                                {editingPinKey === pinKey && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      autoFocus
+                                      value={pinDraft}
+                                      onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                      onKeyDown={(e) => e.key === "Enter" && handleChangePin(stats.name, stats.eventId)}
+                                      placeholder="Nuovo PIN"
+                                      className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                                    />
+                                    <button
+                                      onClick={() => handleChangePin(stats.name, stats.eventId)}
+                                      disabled={pinSaving}
+                                      className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                                    >
+                                      Salva
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingPinKey(null); setPinDraft(""); }}
+                                      className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                                    >
+                                      Annulla
+                                    </button>
+                                  </div>
+                                )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                         {archivedEvents.length > 0 && (
