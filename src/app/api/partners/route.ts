@@ -13,17 +13,26 @@ export async function GET() {
 
   const { data: scans } = await supabase
     .from("card_scans")
-    .select("partner_id, scanned_at")
-    .not("partner_id", "is", null);
+    .select("partner_id, scanned_at, client_cards(full_name)")
+    .not("partner_id", "is", null)
+    .order("scanned_at", { ascending: false });
 
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const counts = new Map<string, { total: number; today: number }>();
+  const recent = new Map<string, { full_name: string; scanned_at: string }[]>();
   (scans || []).forEach((s) => {
     if (!s.partner_id) return;
     const c = counts.get(s.partner_id) || { total: 0, today: 0 };
     c.total += 1;
     if (new Date(s.scanned_at).getTime() > dayAgo) c.today += 1;
     counts.set(s.partner_id, c);
+
+    const list = recent.get(s.partner_id) || [];
+    if (list.length < 30) {
+      const card = s.client_cards as unknown as { full_name: string } | null;
+      list.push({ full_name: card?.full_name || "—", scanned_at: s.scanned_at });
+      recent.set(s.partner_id, list);
+    }
   });
 
   return NextResponse.json(
@@ -31,6 +40,7 @@ export async function GET() {
       ...p,
       total_scans: counts.get(p.id)?.total || 0,
       scans_today: counts.get(p.id)?.today || 0,
+      recent_scans: recent.get(p.id) || [],
     }))
   );
 }

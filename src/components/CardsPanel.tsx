@@ -78,6 +78,8 @@ interface ScanRecord {
   scanned_at: string;
   event_id: string | null;
   events?: { title: string } | null;
+  partner_id?: string | null;
+  partners?: { name: string } | null;
 }
 
 interface EventOption {
@@ -99,6 +101,7 @@ interface Partner {
   active: boolean;
   total_scans: number;
   scans_today: number;
+  recent_scans: { full_name: string; scanned_at: string }[];
 }
 
 const EMPTY_FORM = {
@@ -171,6 +174,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const [partnerPin, setPartnerPin] = useState("");
   const [partnerSaving, setPartnerSaving] = useState(false);
   const [expandedPartnerId, setExpandedPartnerId] = useState<string | null>(null);
+  const [expandedPartnerLogId, setExpandedPartnerLogId] = useState<string | null>(null);
   const [editingPartnerPinId, setEditingPartnerPinId] = useState<string | null>(null);
   const [partnerPinDraft, setPartnerPinDraft] = useState("");
 
@@ -1101,8 +1105,14 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                             PIN {partner.pin}
                           </button>
                         )}
-                        <span className="text-[10px] text-blue-400">{partner.scans_today} oggi</span>
-                        <span className="text-[10px] text-gray-500">{partner.total_scans} tot.</span>
+                        <button
+                          onClick={() => setExpandedPartnerLogId((v) => (v === partner.id ? null : partner.id))}
+                          title="Vedi registro delle validazioni"
+                          className="flex items-center gap-1.5 hover:opacity-75"
+                        >
+                          <span className="text-[10px] text-blue-400">{partner.scans_today} oggi</span>
+                          <span className="text-[10px] text-gray-500 underline decoration-dotted">{partner.total_scans} tot.</span>
+                        </button>
                         <button
                           onClick={() => handleTogglePartnerActive(partner)}
                           title={partner.active ? "Disattiva" : "Riattiva"}
@@ -1144,6 +1154,25 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                         >
                           Annulla
                         </button>
+                      </div>
+                    )}
+                    {expandedPartnerLogId === partner.id && (
+                      <div className="mt-2 pt-2 border-t border-white/10">
+                        <p className="text-[9px] text-gray-500 px-1 mb-1">Ultime tessere validate:</p>
+                        {partner.recent_scans.length === 0 ? (
+                          <p className="text-[10px] text-gray-500 px-1 py-1">Nessuna validazione ancora</p>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {partner.recent_scans.map((s, i) => (
+                              <div key={i} className="flex items-center justify-between px-1.5 py-1 rounded bg-white/5 text-[10px]">
+                                <span className="text-gray-200 truncate">{s.full_name}</span>
+                                <span className="text-gray-500 flex-shrink-0 ml-2">
+                                  {new Date(s.scanned_at).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     {expandedPartnerId === partner.id && (
@@ -1545,7 +1574,9 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                     <span className="text-gray-300">
                       {new Date(s.scanned_at).toLocaleString("it-IT", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <span className="text-blue-400 truncate ml-2">{s.events?.title || (s.event_id === null ? "Evento Privato" : "")}</span>
+                    <span className="text-blue-400 truncate ml-2">
+                      {s.events?.title || (s.partner_id ? `🤝 ${s.partners?.name || "Collaboratore"}` : s.event_id === null ? "Evento Privato" : "")}
+                    </span>
                   </div>
                 ))}
               </div>

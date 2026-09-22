@@ -20,7 +20,7 @@ export async function GET(
 
   const { data: scans } = await supabase
     .from("card_scans")
-    .select("id, scanned_at, event_id, events(title)")
+    .select("id, scanned_at, event_id, events(title), partner_id, partners(name)")
     .eq("card_id", id)
     .order("scanned_at", { ascending: false });
 
