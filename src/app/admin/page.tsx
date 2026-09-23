@@ -41,6 +41,7 @@ import {
     CreditCard,
     Copy,
     Link2,
+    Download,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -960,15 +961,15 @@ export default function AdminPage() {
     }
   };
 
-  const handleDownloadAllVip = async () => {
-    if (vipCodes.length === 0) return;
+  const downloadVipCodes = async (items: { code: string; vip_number: number | null }[]) => {
+    if (items.length === 0) return;
     setVipDownloadingAll(true);
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
       const files: File[] = [];
-      for (const item of vipCodes) {
+      for (const item of items) {
         const url = `${origin}/verify/${item.code}`;
-        const canvas = await drawVipQRCanvas(url, item.vip_number);
+        const canvas = await drawVipQRCanvas(url, item.vip_number ?? 0);
         const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
         if (blob) files.push(new File([blob], `vip-${item.vip_number}-${item.code}.png`, { type: "image/png" }));
       }
@@ -1000,6 +1001,24 @@ export default function AdminPage() {
     } finally {
       setVipDownloadingAll(false);
     }
+  };
+
+  const handleDownloadAllVip = () => downloadVipCodes(vipCodes);
+  const handleDownloadSelectedVip = () => {
+    const items = vipStatusList.filter((r) => vipSelectedCodes.has(r.code));
+    downloadVipCodes(items);
+  };
+  const handleDownloadOneVip = async (code: string, vipNumber: number | null) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+    const url = `${origin}/verify/${code}`;
+    try {
+      const canvas = await drawVipQRCanvas(url, vipNumber ?? 0);
+      const link = document.createElement("a");
+      link.download = `vip-${vipNumber}-${code}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      toast.success("QR scaricato!");
+    } catch { toast.error("Errore download"); }
   };
 
   const fetchVipStatus = async () => {
@@ -1919,6 +1938,16 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2">
                           {vipSelectedCodes.size > 0 && (
                             <button
+                              onClick={handleDownloadSelectedVip}
+                              disabled={vipDownloadingAll}
+                              className="py-1.5 px-3 rounded-full bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              <Download size={12} />
+                              {vipDownloadingAll ? "..." : `Scarica selezionati (${vipSelectedCodes.size})`}
+                            </button>
+                          )}
+                          {vipSelectedCodes.size > 0 && (
+                            <button
                               onClick={handleDeleteSelectedVip}
                               disabled={vipBulkDeleting}
                               className="py-1.5 px-3 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
@@ -1969,6 +1998,13 @@ export default function AdminPage() {
                               <span className={`flex-shrink-0 ${r.status === "used" ? "text-green-400" : r.status === "cancelled" ? "text-red-400" : "text-gray-500"}`}>
                                 {r.status === "used" ? "✅ Entrato" : r.status === "cancelled" ? "🚫 Annullato" : "⏳ In attesa"}
                               </span>
+                              <button
+                                onClick={() => handleDownloadOneVip(r.code, r.vip_number)}
+                                title="Scarica QR"
+                                className="flex-shrink-0 p-1 rounded-full text-gray-500 hover:text-yellow-400 hover:bg-yellow-500/10 transition-all"
+                              >
+                                <Download size={12} />
+                              </button>
                               <button
                                 onClick={() => handleDeleteVipCode(r.code)}
                                 disabled={vipDeletingCode === r.code}
