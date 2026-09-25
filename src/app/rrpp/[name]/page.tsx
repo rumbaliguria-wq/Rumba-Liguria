@@ -18,7 +18,11 @@ interface Stats {
 }
 
 export default function RrppPage({ params }: { params: Promise<{ name: string }> }) {
-  const { name } = use(params);
+  // Next no decodifica el segmento dinámico de la URL — si el nombre del
+  // link tiene un espacio (p. ej. "Twerk it"), sin esto llegaría literal
+  // como "Twerk%20it" y el PIN nunca coincidiría con el guardado.
+  const { name: rawName } = use(params);
+  const name = decodeURIComponent(rawName);
   const [pin, setPin] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "expired" | "ok">("idle");
   const [message, setMessage] = useState("");

@@ -40,6 +40,8 @@ import {
     ChevronRight,
     CreditCard,
     Copy,
+    Link2,
+    Download,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -165,6 +167,7 @@ export default function AdminPage() {
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
+  const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeLoading, setPlaceLoading] = useState(false);
@@ -195,6 +198,10 @@ export default function AdminPage() {
   const [reassignEventId, setReassignEventId] = useState("");
   const [reassigning, setReassigning] = useState(false);
   const [showArchivedLinkStats, setShowArchivedLinkStats] = useState(false);
+  const [editingPinKey, setEditingPinKey] = useState<string | null>(null);
+  const [pinDraft, setPinDraft] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -955,15 +962,15 @@ export default function AdminPage() {
     }
   };
 
-  const handleDownloadAllVip = async () => {
-    if (vipCodes.length === 0) return;
+  const downloadVipCodes = async (items: { code: string; vip_number: number | null }[]) => {
+    if (items.length === 0) return;
     setVipDownloadingAll(true);
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
       const files: File[] = [];
-      for (const item of vipCodes) {
+      for (const item of items) {
         const url = `${origin}/verify/${item.code}`;
-        const canvas = await drawVipQRCanvas(url, item.vip_number);
+        const canvas = await drawVipQRCanvas(url, item.vip_number ?? 0);
         const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
         if (blob) files.push(new File([blob], `vip-${item.vip_number}-${item.code}.png`, { type: "image/png" }));
       }
@@ -995,6 +1002,24 @@ export default function AdminPage() {
     } finally {
       setVipDownloadingAll(false);
     }
+  };
+
+  const handleDownloadAllVip = () => downloadVipCodes(vipCodes);
+  const handleDownloadSelectedVip = () => {
+    const items = vipStatusList.filter((r) => vipSelectedCodes.has(r.code));
+    downloadVipCodes(items);
+  };
+  const handleDownloadOneVip = async (code: string, vipNumber: number | null) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+    const url = `${origin}/verify/${code}`;
+    try {
+      const canvas = await drawVipQRCanvas(url, vipNumber ?? 0);
+      const link = document.createElement("a");
+      link.download = `vip-${vipNumber}-${code}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      toast.success("QR scaricato!");
+    } catch { toast.error("Errore download"); }
   };
 
   const fetchVipStatus = async () => {
@@ -1116,6 +1141,26 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setReassigning(false); }
+  };
+
+  const handleChangePin = async (name: string, eventId: string) => {
+    if (!pinDraft.trim()) { toast.error("Inserisci il nuovo PIN"); return; }
+    setPinSaving(true);
+    try {
+      const res = await fetch("/api/custom-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: eventId, name, pin: pinDraft.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Nuovo PIN di "${name}": ${pinDraft.trim()}`);
+        setEditingPinKey(null);
+        setPinDraft("");
+        fetchReservationsRef.current?.();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPinSaving(false); }
   };
 
   const handleDeleteUser = async (id: string, email?: string) => {
@@ -1894,6 +1939,16 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2">
                           {vipSelectedCodes.size > 0 && (
                             <button
+                              onClick={handleDownloadSelectedVip}
+                              disabled={vipDownloadingAll}
+                              className="py-1.5 px-3 rounded-full bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              <Download size={12} />
+                              {vipDownloadingAll ? "..." : `Scarica selezionati (${vipSelectedCodes.size})`}
+                            </button>
+                          )}
+                          {vipSelectedCodes.size > 0 && (
+                            <button
                               onClick={handleDeleteSelectedVip}
                               disabled={vipBulkDeleting}
                               className="py-1.5 px-3 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-all text-xs font-medium disabled:opacity-50 flex items-center gap-1.5"
@@ -1944,6 +1999,13 @@ export default function AdminPage() {
                               <span className={`flex-shrink-0 ${r.status === "used" ? "text-green-400" : r.status === "cancelled" ? "text-red-400" : "text-gray-500"}`}>
                                 {r.status === "used" ? "✅ Entrato" : r.status === "cancelled" ? "🚫 Annullato" : "⏳ In attesa"}
                               </span>
+                              <button
+                                onClick={() => handleDownloadOneVip(r.code, r.vip_number)}
+                                title="Scarica QR"
+                                className="flex-shrink-0 p-1 rounded-full text-gray-500 hover:text-yellow-400 hover:bg-yellow-500/10 transition-all"
+                              >
+                                <Download size={12} />
+                              </button>
                               <button
                                 onClick={() => handleDeleteVipCode(r.code)}
                                 disabled={vipDeletingCode === r.code}
@@ -2075,12 +2137,13 @@ export default function AdminPage() {
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
                     const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null }> = {};
-                    // El PIN vive en la fila "stub" del link (user_email = __link__nombre__),
-                    // no en las reservas de sus clientes — se lo pega por nombre + evento.
-                    const pinByKey: Record<string, string | null | undefined> = {};
+                    // Primero se listan todos los links creados (fila "stub",
+                    // user_email = __link__nombre__), aunque todavía no tengan
+                    // ninguna reserva — así siempre se puede ver/cambiar su PIN.
                     reservations.forEach(r => {
                       if (r.user_email?.startsWith("__link__")) {
-                        pinByKey[`${r.user_name}::${r.event_id}`] = r.link_pin;
+                        const key = `${r.user_name}::${r.event_id}`;
+                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin };
                       }
                     });
                     reservations.forEach(r => {
@@ -2088,7 +2151,7 @@ export default function AdminPage() {
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: pinByKey[key] };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
                       }
@@ -2096,7 +2159,7 @@ export default function AdminPage() {
                     const all = Object.values(linkStats);
                     const active = all.filter(s => !s.archived);
                     const archived = all.filter(s => s.archived);
-                    if (all.length === 0) return <p className="text-xs text-gray-500">Nessuna prenotazione da link ancora</p>;
+                    if (all.length === 0) return <p className="text-xs text-gray-500">Nessun link creato ancora</p>;
 
                     // Archived stats are grouped by event — you open the event
                     // that already happened to see who brought how many people.
@@ -2110,22 +2173,98 @@ export default function AdminPage() {
                     return (
                       <>
                         {active.length === 0 ? (
-                          <p className="text-xs text-gray-500">Nessuna prenotazione da link per eventi attivi</p>
+                          <p className="text-xs text-gray-500">Nessun link per eventi attivi</p>
                         ) : (
                           <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                            {active.map((stats) => (
-                              <div key={`${stats.name}::${stats.eventTitle}`} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xs font-medium text-white truncate">{stats.name}</span>
-                                  <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
+                            {active.map((stats) => {
+                              const pinKey = `${stats.name}::${stats.eventId}`;
+                              return (
+                              <div key={`${stats.name}::${stats.eventTitle}`} className="p-2 rounded-lg bg-white/5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <button
+                                      onClick={() => setExpandedLinkKey(v => v === pinKey ? null : pinKey)}
+                                      title="Vedi i link"
+                                      className="p-1 rounded text-gray-500 hover:text-blue-400 hover:bg-white/5 flex-shrink-0"
+                                    >
+                                      <Link2 size={12} />
+                                    </button>
+                                    <span className="text-xs font-medium text-white truncate">{stats.name}</span>
+                                    <span className="text-[9px] text-gray-500 truncate">{stats.eventTitle}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    {editingPinKey !== pinKey && (
+                                      <button
+                                        onClick={() => { setEditingPinKey(pinKey); setPinDraft(""); }}
+                                        className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                                        title="Cambia il PIN"
+                                      >
+                                        {stats.pin ? `PIN ${stats.pin}` : "Imposta PIN"}
+                                      </button>
+                                    )}
+                                    <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
+                                    <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  {stats.pin && <span className="text-[10px] text-gray-500 font-mono" title="PIN del RR.PP.">PIN {stats.pin}</span>}
-                                  <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
-                                  <span className="text-[10px] text-green-400">{stats.used} entrati</span>
-                                </div>
+                                {editingPinKey === pinKey && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      autoFocus
+                                      value={pinDraft}
+                                      onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                      onKeyDown={(e) => e.key === "Enter" && handleChangePin(stats.name, stats.eventId)}
+                                      placeholder="Nuovo PIN"
+                                      className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                                    />
+                                    <button
+                                      onClick={() => handleChangePin(stats.name, stats.eventId)}
+                                      disabled={pinSaving}
+                                      className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                                    >
+                                      Salva
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingPinKey(null); setPinDraft(""); }}
+                                      className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                                    >
+                                      Annulla
+                                    </button>
+                                  </div>
+                                )}
+                                {expandedLinkKey === pinKey && (() => {
+                                  const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                                  const customerLink = `${origin}/?ref=${encodeURIComponent(stats.name)}`;
+                                  const rrppLink = `${origin}/rrpp/${encodeURIComponent(stats.name)}`;
+                                  return (
+                                    <div className="space-y-1.5 mt-2 pt-2 border-t border-white/10">
+                                      <div>
+                                        <p className="text-[9px] text-gray-500 px-1 mb-1">Link per far prenotare la gente:</p>
+                                        <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-400 flex-1 truncate">{customerLink}</span>
+                                          <button
+                                            onClick={() => { navigator.clipboard.writeText(customerLink).then(() => toast.success("Link copiato!")); }}
+                                            className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30 flex-shrink-0"
+                                          >Copia link</button>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-[9px] text-gray-500 px-1 mb-1">Link per le statistiche del RR.PP.:</p>
+                                        <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-400 flex-1 truncate">{rrppLink}</span>
+                                          <button
+                                            onClick={() => { navigator.clipboard.writeText(rrppLink).then(() => toast.success("Link copiato!")); }}
+                                            className="px-2 py-1 rounded bg-purple-500/20 text-purple-400 text-[10px] font-medium hover:bg-purple-500/30 flex-shrink-0"
+                                          >Copia link</button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                         {archivedEvents.length > 0 && (
@@ -4091,27 +4230,75 @@ export default function AdminPage() {
         { label: "Cancellate", value: cancelled, color: "text-red-400", borderColor: "border-red-500/20", list: evRes.filter(r => r.status === "cancelled") },
       ];
 
+      const drilldownTypeOf = (r: Reservation) => {
+        const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+        return ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
+      };
+      const fullDrilldownList = statsDrilldown?.list ?? [];
+      const filteredDrilldownList = drilldownTypeFilter === "all"
+        ? fullDrilldownList
+        : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
+
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
                 {statsDrilldown ? (
-                  <button onClick={() => setStatsDrilldown(null)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
                 <h3 className="font-bold text-white text-base">{statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
-              <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+              <div className="flex items-center gap-2">
+                {statsDrilldown && filteredDrilldownList.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const names = filteredDrilldownList.map(r => r.user_name).filter(Boolean);
+                      if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                      navigator.clipboard.writeText(names.join("\n"))
+                        .then(() => toast.success(`${names.length} nomi copiati!`))
+                        .catch(() => toast.error("Errore durante la copia"));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                  >
+                    <Copy size={12} /> Copia nomi
+                  </button>
+                )}
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+              </div>
             </div>
 
             {statsDrilldown ? (
               /* ── Detail list ── */
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
-                {statsDrilldown.list.length === 0 ? (
+                {fullDrilldownList.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pb-2 mb-1">
+                    {[
+                      { key: "all", label: "Tutti" },
+                      { key: "ERASMUS", label: "Erasmus" },
+                      { key: "UNIVERSITARIO", label: "Universitario" },
+                      { key: "ALTRO", label: "Altro" },
+                      { key: "NONE", label: "Non registrato" },
+                    ].map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() => setDrilldownTypeFilter(key)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                          drilldownTypeFilter === key
+                            ? "bg-blue-600/25 text-blue-400 border border-blue-500/40"
+                            : "bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {filteredDrilldownList.length === 0 ? (
                   <p className="text-center text-gray-500 py-8 text-sm">Nessuna prenotazione</p>
-                ) : statsDrilldown.list.map((r) => {
+                ) : filteredDrilldownList.map((r) => {
                   const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
                   const typeKey = ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
                   const typeInfo = TYPE_META[typeKey];

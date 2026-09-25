@@ -29,6 +29,9 @@ import {
   IdCard,
   Globe,
   MessageCircle,
+  Link2,
+  Copy,
+  ChevronDown,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
@@ -75,6 +78,8 @@ interface ScanRecord {
   scanned_at: string;
   event_id: string | null;
   events?: { title: string } | null;
+  partner_id?: string | null;
+  partners?: { name: string } | null;
 }
 
 interface EventOption {
@@ -87,6 +92,16 @@ interface Stats {
   total_scans: number;
   scans_today: number;
   by_type: Record<string, number>;
+}
+
+interface Partner {
+  id: string;
+  name: string;
+  pin: string;
+  active: boolean;
+  total_scans: number;
+  scans_today: number;
+  recent_scans: { full_name: string; scanned_at: string }[];
 }
 
 const EMPTY_FORM = {
@@ -151,6 +166,18 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const [manualSearch, setManualSearch] = useState("");
   const [manualCheckinLoadingId, setManualCheckinLoadingId] = useState<string | null>(null);
 
+  // Collaboratori esterni (bar/locali che validano le tessere per fare
+  // sconti) — ognuno ha un link + PIN proprio, senza accesso al pannello.
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [showPartnersSection, setShowPartnersSection] = useState(false);
+  const [partnerName, setPartnerName] = useState("");
+  const [partnerPin, setPartnerPin] = useState("");
+  const [partnerSaving, setPartnerSaving] = useState(false);
+  const [expandedPartnerId, setExpandedPartnerId] = useState<string | null>(null);
+  const [expandedPartnerLogId, setExpandedPartnerLogId] = useState<string | null>(null);
+  const [editingPartnerPinId, setEditingPartnerPinId] = useState<string | null>(null);
+  const [partnerPinDraft, setPartnerPinDraft] = useState("");
+
   const fetchCards = useCallback(async () => {
     setLoading(true);
     try {
@@ -179,11 +206,86 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     } catch {}
   }, []);
 
+  const fetchPartners = useCallback(async () => {
+    try {
+      const res = await fetch("/api/partners");
+      const data = await res.json();
+      if (Array.isArray(data)) setPartners(data);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     fetchCards();
     fetchStats();
     fetchEvents();
-  }, [fetchCards, fetchStats, fetchEvents]);
+    fetchPartners();
+  }, [fetchCards, fetchStats, fetchEvents, fetchPartners]);
+
+  const handleSavePartner = async () => {
+    if (!partnerName.trim()) { toast.error("Inserisci il nome del collaboratore"); return; }
+    if (!partnerPin.trim()) { toast.error("Inserisci un PIN"); return; }
+    setPartnerSaving(true);
+    try {
+      const res = await fetch("/api/partners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: partnerName.trim(), pin: partnerPin.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(d.updated ? "PIN aggiornato!" : "Collaboratore creato!");
+        setPartnerName("");
+        setPartnerPin("");
+        fetchPartners();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPartnerSaving(false); }
+  };
+
+  const handleChangePartnerPin = async (partner: Partner) => {
+    if (!partnerPinDraft.trim()) { toast.error("Inserisci il nuovo PIN"); return; }
+    setPartnerSaving(true);
+    try {
+      const res = await fetch("/api/partners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: partner.name, pin: partnerPinDraft.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Nuovo PIN di "${partner.name}": ${partnerPinDraft.trim()}`);
+        setEditingPartnerPinId(null);
+        setPartnerPinDraft("");
+        fetchPartners();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPartnerSaving(false); }
+  };
+
+  const handleTogglePartnerActive = async (partner: Partner) => {
+    try {
+      const res = await fetch("/api/partners", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: partner.id, active: !partner.active }),
+      });
+      if (res.ok) { toast.success(partner.active ? "Collaboratore disattivato" : "Collaboratore riattivato"); fetchPartners(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
+
+  const handleDeletePartner = async (partner: Partner) => {
+    if (!confirm(`Eliminare definitivamente "${partner.name}"? Il suo link smetterà di funzionare.`)) return;
+    try {
+      const res = await fetch("/api/partners", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: partner.id }),
+      });
+      if (res.ok) { toast.success("Collaboratore eliminato"); fetchPartners(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
 
   // ─── Form ───
 
@@ -924,6 +1026,177 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         </button>
       </div>
 
+      {/* Collaboratori esterni */}
+      <button
+        onClick={() => setShowPartnersSection(!showPartnersSection)}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+      >
+        <span className="flex items-center gap-2 text-sm">
+          🤝 Collaboratori (bar/locali)
+        </span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${showPartnersSection ? "rotate-180" : ""}`} />
+      </button>
+      {showPartnersSection && (
+        <div className="p-4 rounded-xl bg-white/5 border border-blue-500/20 mb-6">
+          <p className="text-[11px] text-gray-500 mb-3">
+            Dai questo link a un bar/locale con cui collabori (es. per la previa): potrà scansionare le tessere dei
+            tuoi clienti per verificare che siano valide e fare lo sconto, senza vedere nient&apos;altro del tuo pannello.
+          </p>
+          <div className="flex items-end gap-3 mb-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-400 mb-1 block">Nome collaboratore</label>
+              <input
+                type="text"
+                value={partnerName}
+                onChange={(e) => setPartnerName(e.target.value)}
+                placeholder="es. Bar Onda"
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+              />
+            </div>
+            <div className="w-24 flex-shrink-0">
+              <label className="text-xs text-gray-400 mb-1 block">PIN</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={partnerPin}
+                onChange={(e) => setPartnerPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="1234"
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+              />
+            </div>
+            <button
+              onClick={handleSavePartner}
+              disabled={partnerSaving}
+              className="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-500 transition-all disabled:opacity-50"
+            >
+              {partnerSaving ? "..." : "Crea"}
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-3">Se il nome esiste già, questo aggiorna solo il suo PIN (utile se lo perde).</p>
+
+          {partners.length === 0 ? (
+            <p className="text-xs text-gray-500">Nessun collaboratore creato ancora</p>
+          ) : (
+            <div className="space-y-1.5">
+              {partners.map((partner) => {
+                const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                const link = `${origin}/colaborador/${encodeURIComponent(partner.name)}`;
+                return (
+                  <div key={partner.id} className={`p-2 rounded-lg bg-white/5 ${!partner.active ? "opacity-50" : ""}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          onClick={() => setExpandedPartnerId((v) => (v === partner.id ? null : partner.id))}
+                          title="Vedi il link"
+                          className="p-1 rounded text-gray-500 hover:text-blue-400 hover:bg-white/5 flex-shrink-0"
+                        >
+                          <Link2 size={12} />
+                        </button>
+                        <span className="text-xs font-medium text-white truncate">{partner.name}</span>
+                        {!partner.active && <span className="text-[9px] text-red-400 flex-shrink-0">Disattivo</span>}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {editingPartnerPinId !== partner.id && (
+                          <button
+                            onClick={() => { setEditingPartnerPinId(partner.id); setPartnerPinDraft(""); }}
+                            className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                            title="Cambia il PIN"
+                          >
+                            PIN {partner.pin}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setExpandedPartnerLogId((v) => (v === partner.id ? null : partner.id))}
+                          title="Vedi registro delle validazioni"
+                          className="flex items-center gap-1.5 hover:opacity-75"
+                        >
+                          <span className="text-[10px] text-blue-400">{partner.scans_today} oggi</span>
+                          <span className="text-[10px] text-gray-500 underline decoration-dotted">{partner.total_scans} tot.</span>
+                        </button>
+                        <button
+                          onClick={() => handleTogglePartnerActive(partner)}
+                          title={partner.active ? "Disattiva" : "Riattiva"}
+                          className="p-1 rounded text-gray-500 hover:text-yellow-400"
+                        >
+                          {partner.active ? <Ban size={13} /> : <RotateCcw size={13} />}
+                        </button>
+                        <button
+                          onClick={() => handleDeletePartner(partner)}
+                          title="Elimina"
+                          className="p-1 rounded text-gray-500 hover:text-red-400"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {editingPartnerPinId === partner.id && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoFocus
+                          value={partnerPinDraft}
+                          onChange={(e) => setPartnerPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          onKeyDown={(e) => e.key === "Enter" && handleChangePartnerPin(partner)}
+                          placeholder="Nuovo PIN"
+                          className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                        />
+                        <button
+                          onClick={() => handleChangePartnerPin(partner)}
+                          disabled={partnerSaving}
+                          className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                        >
+                          Salva
+                        </button>
+                        <button
+                          onClick={() => { setEditingPartnerPinId(null); setPartnerPinDraft(""); }}
+                          className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                        >
+                          Annulla
+                        </button>
+                      </div>
+                    )}
+                    {expandedPartnerLogId === partner.id && (
+                      <div className="mt-2 pt-2 border-t border-white/10">
+                        <p className="text-[9px] text-gray-500 px-1 mb-1">Ultime tessere validate:</p>
+                        {partner.recent_scans.length === 0 ? (
+                          <p className="text-[10px] text-gray-500 px-1 py-1">Nessuna validazione ancora</p>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {partner.recent_scans.map((s, i) => (
+                              <div key={i} className="flex items-center justify-between px-1.5 py-1 rounded bg-white/5 text-[10px]">
+                                <span className="text-gray-200 truncate">{s.full_name}</span>
+                                <span className="text-gray-500 flex-shrink-0 ml-2">
+                                  {new Date(s.scanned_at).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {expandedPartnerId === partner.id && (
+                      <div className="mt-2 pt-2 border-t border-white/10">
+                        <p className="text-[9px] text-gray-500 px-1 mb-1">Link da dare al collaboratore:</p>
+                        <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400 flex-1 truncate">{link}</span>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(link).then(() => toast.success("Link copiato!")); }}
+                            className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30 flex items-center gap-1 flex-shrink-0"
+                          >
+                            <Copy size={10} /> Copia link
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <div className="flex justify-center py-16">
@@ -1301,7 +1574,9 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                     <span className="text-gray-300">
                       {new Date(s.scanned_at).toLocaleString("it-IT", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <span className="text-blue-400 truncate ml-2">{s.events?.title || (s.event_id === null ? "Evento Privato" : "")}</span>
+                    <span className="text-blue-400 truncate ml-2">
+                      {s.events?.title || (s.partner_id ? `🤝 ${s.partners?.name || "Collaboratore"}` : s.event_id === null ? "Evento Privato" : "")}
+                    </span>
                   </div>
                 ))}
               </div>
