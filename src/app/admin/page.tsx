@@ -4222,7 +4222,23 @@ export default function AdminPage() {
                 )}
                 <h3 className="font-bold text-white text-base">{statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
-              <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+              <div className="flex items-center gap-2">
+                {statsDrilldown && statsDrilldown.list.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const names = statsDrilldown.list.map(r => r.user_name).filter(Boolean);
+                      if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                      navigator.clipboard.writeText(names.join("\n"))
+                        .then(() => toast.success(`${names.length} nomi copiati!`))
+                        .catch(() => toast.error("Errore durante la copia"));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                  >
+                    <Copy size={12} /> Copia nomi
+                  </button>
+                )}
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+              </div>
             </div>
 
             {statsDrilldown ? (
