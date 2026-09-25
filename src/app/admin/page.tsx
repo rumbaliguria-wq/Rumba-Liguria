@@ -167,6 +167,7 @@ export default function AdminPage() {
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
+  const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeLoading, setPlaceLoading] = useState(false);
@@ -4210,23 +4211,32 @@ export default function AdminPage() {
         { label: "Cancellate", value: cancelled, color: "text-red-400", borderColor: "border-red-500/20", list: evRes.filter(r => r.status === "cancelled") },
       ];
 
+      const drilldownTypeOf = (r: Reservation) => {
+        const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
+        return ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
+      };
+      const fullDrilldownList = statsDrilldown?.list ?? [];
+      const filteredDrilldownList = drilldownTypeFilter === "all"
+        ? fullDrilldownList
+        : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
+
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
                 {statsDrilldown ? (
-                  <button onClick={() => setStatsDrilldown(null)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
                 <h3 className="font-bold text-white text-base">{statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
               <div className="flex items-center gap-2">
-                {statsDrilldown && statsDrilldown.list.length > 0 && (
+                {statsDrilldown && filteredDrilldownList.length > 0 && (
                   <button
                     onClick={() => {
-                      const names = statsDrilldown.list.map(r => r.user_name).filter(Boolean);
+                      const names = filteredDrilldownList.map(r => r.user_name).filter(Boolean);
                       if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
                       navigator.clipboard.writeText(names.join("\n"))
                         .then(() => toast.success(`${names.length} nomi copiati!`))
@@ -4237,16 +4247,39 @@ export default function AdminPage() {
                     <Copy size={12} /> Copia nomi
                   </button>
                 )}
-                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
               </div>
             </div>
 
             {statsDrilldown ? (
               /* ── Detail list ── */
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
-                {statsDrilldown.list.length === 0 ? (
+                {fullDrilldownList.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pb-2 mb-1">
+                    {[
+                      { key: "all", label: "Tutti" },
+                      { key: "ERASMUS", label: "Erasmus" },
+                      { key: "UNIVERSITARIO", label: "Universitario" },
+                      { key: "ALTRO", label: "Altro" },
+                      { key: "NONE", label: "Non registrato" },
+                    ].map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() => setDrilldownTypeFilter(key)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                          drilldownTypeFilter === key
+                            ? "bg-blue-600/25 text-blue-400 border border-blue-500/40"
+                            : "bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {filteredDrilldownList.length === 0 ? (
                   <p className="text-center text-gray-500 py-8 text-sm">Nessuna prenotazione</p>
-                ) : statsDrilldown.list.map((r) => {
+                ) : filteredDrilldownList.map((r) => {
                   const ru = usersByEmail.get(r.user_email?.toLowerCase() ?? "");
                   const typeKey = ru?.userType && TYPE_META[ru.userType] ? ru.userType : "NONE";
                   const typeInfo = TYPE_META[typeKey];
