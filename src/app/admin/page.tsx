@@ -81,6 +81,14 @@ async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanv
   return canvas;
 }
 
+// Entradas vendidas en efectivo: son entradas reales (no un perk VIP), así
+// que llevan el QR normal en blanco y negro, sin la insignia dorada.
+async function drawPlainQRCanvas(url: string): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement("canvas");
+  await QRCode.toCanvas(canvas, url, { width: 280, margin: 1, errorCorrectionLevel: "M" });
+  return canvas;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   // Called before the login-screen early return, since hooks can't be conditional.
@@ -185,6 +193,17 @@ export default function AdminPage() {
   const [vipDeletingCode, setVipDeletingCode] = useState<string | null>(null);
   const [vipBulkDeleting, setVipBulkDeleting] = useState(false);
   const [vipSelectedCodes, setVipSelectedCodes] = useState<Set<string>>(new Set());
+  // Venta manual en efectivo, a un precio que el admin negocia en persona
+  // (ej. descuento) — genera entradas reales, sin pasar por Stripe.
+  const [showCashSaleSection, setShowCashSaleSection] = useState(false);
+  const [cashSaleEventId, setCashSaleEventId] = useState("");
+  const [cashSaleCountInput, setCashSaleCountInput] = useState("1");
+  const [cashSalePrice, setCashSalePrice] = useState("");
+  const [cashSaleName, setCashSaleName] = useState("");
+  const [cashSaleEmail, setCashSaleEmail] = useState("");
+  const [cashSaleGenerating, setCashSaleGenerating] = useState(false);
+  const [cashSaleCodes, setCashSaleCodes] = useState<{ code: string }[]>([]);
+  const [cashSaleDownloadingAll, setCashSaleDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
@@ -1020,6 +1039,81 @@ export default function AdminPage() {
       link.click();
       toast.success("QR scaricato!");
     } catch { toast.error("Errore download"); }
+  };
+
+  const handleGenerateCashSale = async () => {
+    if (!cashSaleEventId) { toast.error("Seleziona un evento"); return; }
+    const count = Math.max(1, Math.min(20, parseInt(cashSaleCountInput) || 1));
+    setCashSaleCountInput(String(count));
+    const price = parseFloat(cashSalePrice.replace(",", "."));
+    if (!Number.isFinite(price) || price <= 0) { toast.error("Inserisci il prezzo totale incassato"); return; }
+    setCashSaleGenerating(true);
+    try {
+      const res = await fetch("/api/admin/cash-sale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_id: cashSaleEventId,
+          guest_count: count,
+          total_price: price,
+          customer_name: cashSaleName.trim() || undefined,
+          customer_email: cashSaleEmail.trim() || undefined,
+        }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setCashSaleCodes(d.codes || []);
+        toast.success(`${count} ${count === 1 ? "biglietto generato" : "biglietti generati"} per ${price}€!`);
+        fetchReservationsRef.current?.();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setCashSaleGenerating(false); }
+  };
+
+  const handleDownloadOneCashSale = async (code: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+    try {
+      const canvas = await drawPlainQRCanvas(`${origin}/verify/${code}`);
+      const link = document.createElement("a");
+      link.download = `biglietto-${code}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      toast.success("QR scaricato!");
+    } catch { toast.error("Errore download"); }
+  };
+
+  const handleDownloadAllCashSale = async () => {
+    if (cashSaleCodes.length === 0) return;
+    setCashSaleDownloadingAll(true);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+      const files: File[] = [];
+      for (const item of cashSaleCodes) {
+        const canvas = await drawPlainQRCanvas(`${origin}/verify/${item.code}`);
+        const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (blob) files.push(new File([blob], `biglietto-${item.code}.png`, { type: "image/png" }));
+      }
+      const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files });
+      if (canShareFiles) {
+        await navigator.share({ files, title: "Biglietti Rumba Liguria" });
+        toast.success("Salva o condividi le immagini dal pannello aperto");
+        return;
+      }
+      for (const file of files) {
+        const link = document.createElement("a");
+        link.download = file.name;
+        link.href = URL.createObjectURL(file);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      toast.success(`${files.length} QR scaricati!`);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      toast.error("Errore durante il download");
+    } finally {
+      setCashSaleDownloadingAll(false);
+    }
   };
 
   const fetchVipStatus = async () => {
@@ -2020,6 +2114,124 @@ export default function AdminPage() {
                     </>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ─── Vendita in Contanti ─── */}
+            <button
+              onClick={() => setShowCashSaleSection(!showCashSaleSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                💶 Vendita in Contanti
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showCashSaleSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showCashSaleSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-green-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Per quando vendi tu stesso un biglietto in contanti (es. con uno sconto che hai negoziato di persona).
+                  Genera biglietti veri — contano nel limite di posti dell&apos;evento — senza passare da nessun pagamento online.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                    <select
+                      value={cashSaleEventId}
+                      onChange={(e) => setCashSaleEventId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-green-500/40 [color-scheme:dark]"
+                    >
+                      <option value="">Seleziona evento</option>
+                      {events.filter(e => !e.archived).map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Quantità</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={cashSaleCountInput}
+                      onChange={(e) => setCashSaleCountInput(e.target.value)}
+                      onBlur={() => setCashSaleCountInput(String(Math.max(1, Math.min(20, parseInt(cashSaleCountInput) || 1))))}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-center text-sm focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Prezzo totale (€)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={cashSalePrice}
+                      onChange={(e) => setCashSalePrice(e.target.value)}
+                      placeholder="es. 18"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-green-500/40 [color-scheme:dark]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Nome cliente</label>
+                    <input
+                      type="text"
+                      value={cashSaleName}
+                      onChange={(e) => setCashSaleName(e.target.value)}
+                      placeholder="opzionale"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-end gap-3 mb-1">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Email cliente (opzionale, per mandargli anche il biglietto via email)</label>
+                    <input
+                      type="email"
+                      value={cashSaleEmail}
+                      onChange={(e) => setCashSaleEmail(e.target.value)}
+                      placeholder="mario@email.com"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleGenerateCashSale}
+                    disabled={cashSaleGenerating}
+                    className="px-4 py-2.5 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-500 transition-all disabled:opacity-50 flex-shrink-0"
+                  >
+                    {cashSaleGenerating ? "..." : "Vendi e genera"}
+                  </button>
+                </div>
+
+                {cashSaleCodes.length > 0 && (
+                  <div className="mt-3">
+                    {cashSaleCodes.length > 1 && (
+                      <button
+                        onClick={handleDownloadAllCashSale}
+                        disabled={cashSaleDownloadingAll}
+                        className="w-full mb-3 py-2.5 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        {cashSaleDownloadingAll ? "..." : `⬇️ Scarica tutti (${cashSaleCodes.length})`}
+                      </button>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {cashSaleCodes.map((item) => {
+                        const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                        const url = `${origin}/verify/${item.code}`;
+                        return (
+                          <div key={item.code} className="flex flex-col items-center gap-2 p-3 rounded-xl bg-white/5 border border-green-500/20">
+                            <div className="p-1.5 bg-white rounded-lg">
+                              <QRCodeSVG value={url} size={110} />
+                            </div>
+                            <span className="text-[9px] font-mono text-gray-500 truncate w-full text-center">{item.code}</span>
+                            <button
+                              onClick={() => handleDownloadOneCashSale(item.code)}
+                              className="w-full py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-all text-[10px] font-medium"
+                            >Scarica QR</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

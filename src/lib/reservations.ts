@@ -96,6 +96,9 @@ export async function createReservationsAndNotify({
   guest_count,
   ticket_type,
   referral,
+  nameOverride,
+  cashPriceEUR,
+  skipEmail,
   origin,
 }: {
   supabase: SupabaseClient;
@@ -106,6 +109,13 @@ export async function createReservationsAndNotify({
   guest_count: number;
   ticket_type?: string;
   referral?: string;
+  // Venta manual en efectivo por parte del admin: nombre tipeado a mano (no
+  // hay teléfono/cuenta que decodificar) y precio acordado para su registro.
+  nameOverride?: string;
+  cashPriceEUR?: number;
+  // El comprobante por correo no tiene sentido si no hay un email real del
+  // cliente (venta en efectivo sin cuenta).
+  skipEmail?: boolean;
   origin: string;
 }) {
   const ticketsToCreate = [];
@@ -127,11 +137,12 @@ export async function createReservationsAndNotify({
 
     codes.push(code);
     const decoded = decodePhoneField(userPhone ?? null);
-    const baseName = decoded.name
+    const baseName = nameOverride?.trim() || decoded.name
       || user_email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
     let displayName = baseName;
     if (ticket_type) displayName += ` [tipo:${ticket_type}]`;
     if (referral) displayName += ` [ref:${referral}]`;
+    if (cashPriceEUR) displayName += ` [cash:${cashPriceEUR}]`;
     ticketsToCreate.push({
       code,
       event_id,
@@ -155,16 +166,18 @@ export async function createReservationsAndNotify({
     return { code, verifyUrl, qrImageUrl };
   });
 
-  sendEmail({
-    to: user_email,
-    subject: `🎟️ La tua prenotazione per ${eventTitle || "l'evento"}`,
-    html: qrTicketHtml({
-      eventTitle: eventTitle || "Evento Rumba Liguria",
-      userEmail: user_email,
-      guestCount: guest_count,
-      tickets,
-    }),
-  }).catch(() => {/* ignore email errors */});
+  if (!skipEmail) {
+    sendEmail({
+      to: user_email,
+      subject: `🎟️ La tua prenotazione per ${eventTitle || "l'evento"}`,
+      html: qrTicketHtml({
+        eventTitle: eventTitle || "Evento Rumba Liguria",
+        userEmail: user_email,
+        guestCount: guest_count,
+        tickets,
+      }),
+    }).catch(() => {/* ignore email errors */});
+  }
 
   return data;
 }
