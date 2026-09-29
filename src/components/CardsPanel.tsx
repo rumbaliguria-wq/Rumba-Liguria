@@ -1886,14 +1886,24 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 {scanResult && (
                   <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-4 animate-fade-in">
                     <div className="max-w-xs w-full text-center space-y-4">
-                      <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center animate-scale-in ${
-                        scanResult.logged ? "bg-green-500/15 border border-green-500/40" : "bg-yellow-500/15 border border-yellow-500/40"
-                      }`}>
-                        <CheckCircle size={38} className={scanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                      <div className="relative w-44 h-44 mx-auto animate-scale-in">
+                        {scanResult.card.photo_url ? (
+                          <Image src={scanResult.card.photo_url} alt="" width={176} height={176} className="w-44 h-44 rounded-full object-cover border-4 border-white/20" />
+                        ) : (
+                          <div className={`w-44 h-44 rounded-full flex items-center justify-center ${
+                            scanResult.logged ? "bg-green-500/15 border-4 border-green-500/40" : "bg-yellow-500/15 border-4 border-yellow-500/40"
+                          }`}>
+                            <CheckCircle size={64} className={scanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                          </div>
+                        )}
+                        {scanResult.card.photo_url && (
+                          <div className={`absolute bottom-1 right-1 w-11 h-11 rounded-full flex items-center justify-center border-[3px] border-black ${
+                            scanResult.logged ? "bg-green-500" : "bg-yellow-500"
+                          }`}>
+                            <CheckCircle size={22} className="text-white" />
+                          </div>
+                        )}
                       </div>
-                      {scanResult.card.photo_url ? (
-                        <Image src={scanResult.card.photo_url} alt="" width={64} height={64} className="w-16 h-16 rounded-full object-cover mx-auto border border-white/20" />
-                      ) : null}
                       <h1 className="text-2xl font-bold text-white">{scanResult.card.full_name}</h1>
                       {decodeIdType(scanResult.card.id_type).label !== "—" && (
                         <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase bg-blue-500/15 text-blue-300 border border-blue-500/25">
