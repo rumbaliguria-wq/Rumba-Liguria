@@ -42,6 +42,8 @@ import {
     Copy,
     Link2,
     Download,
+    DoorOpen,
+    Ban,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -50,6 +52,7 @@ import CardsPanel from "@/components/CardsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
+import { getEventExpiryUTC } from "@/lib/eventExpiry";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
 } from "./types";
@@ -203,6 +206,17 @@ export default function AdminPage() {
   const [pinSaving, setPinSaving] = useState(false);
   const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
+  // Accesos de personal de entrada: link+PIN que solo dejan escanear los
+  // tickets de UN evento puntual, sin ver nada del panel.
+  const [doorPasses, setDoorPasses] = useState<{ id: string; name: string; pin: string; active: boolean; event_id: string; events: { title: string; event_date_iso: string | null; archived: boolean } | null }[]>([]);
+  const [showDoorSection, setShowDoorSection] = useState(false);
+  const [doorEventId, setDoorEventId] = useState("");
+  const [doorName, setDoorName] = useState("");
+  const [doorPin, setDoorPin] = useState("");
+  const [doorSaving, setDoorSaving] = useState(false);
+  const [expandedDoorId, setExpandedDoorId] = useState<string | null>(null);
+  const [editingDoorPinId, setEditingDoorPinId] = useState<string | null>(null);
+  const [doorPinDraft, setDoorPinDraft] = useState("");
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
@@ -446,6 +460,14 @@ export default function AdminPage() {
     } catch {}
   }, []);
 
+  const fetchDoorPasses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/door-passes");
+      const data = await res.json();
+      if (Array.isArray(data)) setDoorPasses(data);
+    } catch {}
+  }, []);
+
     const formatDisplayName = (name: string | null | undefined, email: string): string => {
       if (!name || name.includes("@")) {
         return email
@@ -558,12 +580,13 @@ export default function AdminPage() {
       fetchReservations();
       fetchGallery();
       fetchRentals();
+      fetchDoorPasses();
       // Lightweight counts for the "Panoramica" dashboard — reuse the same
       // endpoints CardsPanel and the VIP generator already fetch from.
       fetch("/api/reservations/vip").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setVipCodesCount(d.length); }).catch(() => {});
       fetch("/api/cards").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setClientCardsCount(d.length); }).catch(() => {});
     }
-  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals]);
+  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals, fetchDoorPasses]);
 
   const finishLogin = () => {
     // La cookie de sesión ya la ha puesto el servidor (login directo o 2FA).
@@ -1141,6 +1164,73 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setReassigning(false); }
+  };
+
+  const handleSaveDoorPass = async () => {
+    if (!doorName.trim()) { toast.error("Inserisci il nome dell'accesso"); return; }
+    if (!doorEventId) { toast.error("Seleziona un evento"); return; }
+    if (!doorPin.trim()) { toast.error("Inserisci un PIN"); return; }
+    setDoorSaving(true);
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: doorName.trim(), event_id: doorEventId, pin: doorPin.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(d.updated ? "Accesso aggiornato!" : "Accesso creato!");
+        setDoorName("");
+        setDoorPin("");
+        fetchDoorPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setDoorSaving(false); }
+  };
+
+  const handleChangeDoorPin = async (pass: { id: string; name: string; event_id: string }) => {
+    if (!doorPinDraft.trim()) { toast.error("Inserisci il nuovo PIN"); return; }
+    setDoorSaving(true);
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: pass.name, event_id: pass.event_id, pin: doorPinDraft.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Nuovo PIN di "${pass.name}": ${doorPinDraft.trim()}`);
+        setEditingDoorPinId(null);
+        setDoorPinDraft("");
+        fetchDoorPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setDoorSaving(false); }
+  };
+
+  const handleToggleDoorActive = async (pass: { id: string; active: boolean }) => {
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id, active: !pass.active }),
+      });
+      if (res.ok) { toast.success(pass.active ? "Accesso disattivato" : "Accesso riattivato"); fetchDoorPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
+
+  const handleDeleteDoorPass = async (pass: { id: string; name: string }) => {
+    if (!confirm(`Eliminare definitivamente l'accesso "${pass.name}"? Il suo link smetterà di funzionare.`)) return;
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id }),
+      });
+      if (res.ok) { toast.success("Accesso eliminato"); fetchDoorPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
   };
 
   const handleChangePin = async (name: string, eventId: string) => {
@@ -2314,6 +2404,167 @@ export default function AdminPage() {
                     );
                   })()}
                 </div>
+              </div>
+            )}
+
+            {/* ─── Accesso Scanner (personale ingresso) ─── */}
+            <button
+              onClick={() => setShowDoorSection(!showDoorSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <DoorOpen size={16} className="text-blue-400" />
+                Accesso Scanner (personale ingresso)
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showDoorSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showDoorSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-blue-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Per dare a qualcuno (es. un&apos;altra entrata del locale) un accesso che serve SOLO per scansionare i
+                  ticket di un evento — niente pannello, niente altri dati. Smette di funzionare da solo appena finisce quella festa.
+                </p>
+                <div className="flex items-end gap-3 mb-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                    <select
+                      value={doorEventId}
+                      onChange={(e) => setDoorEventId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                    >
+                      <option value="">Seleziona evento</option>
+                      {events.filter(e => !e.archived).map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Nome accesso</label>
+                    <input
+                      type="text"
+                      value={doorName}
+                      onChange={(e) => setDoorName(e.target.value)}
+                      placeholder="es. Entrata 2"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="w-24 flex-shrink-0">
+                    <label className="text-xs text-gray-400 mb-1 block">PIN</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={doorPin}
+                      onChange={(e) => setDoorPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="1234"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveDoorPass}
+                    disabled={doorSaving}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-500 transition-all disabled:opacity-50"
+                  >
+                    {doorSaving ? "..." : "Crea"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mb-3">Se il nome esiste già (es. la settimana prossima), lo riassegna al nuovo evento scelto sopra.</p>
+
+                {doorPasses.length === 0 ? (
+                  <p className="text-xs text-gray-500">Nessun accesso creato ancora</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {doorPasses.map((pass) => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                      const link = `${origin}/ingresso/${encodeURIComponent(pass.name)}`;
+                      const expired = !!pass.events?.event_date_iso && Date.now() > getEventExpiryUTC(pass.events.event_date_iso);
+                      return (
+                        <div key={pass.id} className={`p-2 rounded-lg bg-white/5 ${!pass.active || expired ? "opacity-50" : ""}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <button
+                                onClick={() => setExpandedDoorId((v) => (v === pass.id ? null : pass.id))}
+                                title="Vedi il link"
+                                className="p-1 rounded text-gray-500 hover:text-blue-400 hover:bg-white/5 flex-shrink-0"
+                              >
+                                <Link2 size={12} />
+                              </button>
+                              <span className="text-xs font-medium text-white truncate">{pass.name}</span>
+                              <span className="text-[9px] text-gray-500 truncate">{pass.events?.title}</span>
+                              {expired && <span className="text-[9px] text-red-400 flex-shrink-0">Scaduto</span>}
+                              {!pass.active && <span className="text-[9px] text-red-400 flex-shrink-0">Disattivo</span>}
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {editingDoorPinId !== pass.id && (
+                                <button
+                                  onClick={() => { setEditingDoorPinId(pass.id); setDoorPinDraft(""); }}
+                                  className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                                  title="Cambia il PIN"
+                                >
+                                  PIN {pass.pin}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleToggleDoorActive(pass)}
+                                title={pass.active ? "Disattiva" : "Riattiva"}
+                                className="p-1 rounded text-gray-500 hover:text-yellow-400"
+                              >
+                                {pass.active ? <Ban size={13} /> : <RotateCcw size={13} />}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDoorPass(pass)}
+                                title="Elimina"
+                                className="p-1 rounded text-gray-500 hover:text-red-400"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          {editingDoorPinId === pass.id && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                autoFocus
+                                value={doorPinDraft}
+                                onChange={(e) => setDoorPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                onKeyDown={(e) => e.key === "Enter" && handleChangeDoorPin(pass)}
+                                placeholder="Nuovo PIN"
+                                className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                              />
+                              <button
+                                onClick={() => handleChangeDoorPin(pass)}
+                                disabled={doorSaving}
+                                className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                              >
+                                Salva
+                              </button>
+                              <button
+                                onClick={() => { setEditingDoorPinId(null); setDoorPinDraft(""); }}
+                                className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                              >
+                                Annulla
+                              </button>
+                            </div>
+                          )}
+                          {expandedDoorId === pass.id && (
+                            <div className="mt-2 pt-2 border-t border-white/10">
+                              <p className="text-[9px] text-gray-500 px-1 mb-1">Link da dare al personale:</p>
+                              <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                <span className="text-[10px] text-gray-400 flex-1 truncate">{link}</span>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(link).then(() => toast.success("Link copiato!")); }}
+                                  className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30 flex items-center gap-1 flex-shrink-0"
+                                >
+                                  <Copy size={10} /> Copia link
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
