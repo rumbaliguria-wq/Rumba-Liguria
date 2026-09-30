@@ -84,6 +84,32 @@ async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanv
   return canvas;
 }
 
+// En el celular intenta abrir primero el menú nativo para compartir (donde
+// aparece WhatsApp si está instalado); si no se puede o el navegador lo
+// rechaza, descarga la imagen directamente. Devuelve true si se compartió.
+async function shareOrDownloadCanvas(canvas: HTMLCanvasElement, filename: string, shareTitle: string): Promise<boolean> {
+  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (blob) {
+    const file = new File([blob], filename, { type: "image/png" });
+    const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files: [file] });
+    if (canShareFiles) {
+      try {
+        await navigator.share({ files: [file], title: shareTitle });
+        return true;
+      } catch (err) {
+        // El usuario canceló el menú de compartir a propósito — no forzar la descarga.
+        if (err instanceof Error && err.name === "AbortError") return true;
+        // Cualquier otro fallo (ej. rechazado por el navegador): se descarga igual abajo.
+      }
+    }
+  }
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+  return false;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   // Called before the login-screen early return, since hooks can't be conditional.
@@ -1044,11 +1070,8 @@ export default function AdminPage() {
     const url = `${origin}/verify/${code}`;
     try {
       const canvas = await drawVipQRCanvas(url, vipNumber ?? 0);
-      const link = document.createElement("a");
-      link.download = `vip-${vipNumber}-${code}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      toast.success("QR scaricato!");
+      const shared = await shareOrDownloadCanvas(canvas, `vip-${vipNumber}-${code}.png`, "Codice VIP Rumba Liguria");
+      if (!shared) toast.success("QR scaricato!");
     } catch { toast.error("Errore download"); }
   };
 
@@ -1997,11 +2020,8 @@ export default function AdminPage() {
                               onClick={async () => {
                                 try {
                                   const canvas = await drawVipQRCanvas(url, item.vip_number);
-                                  const link = document.createElement("a");
-                                  link.download = `vip-${item.vip_number}-${item.code}.png`;
-                                  link.href = canvas.toDataURL("image/png");
-                                  link.click();
-                                  toast.success("QR scaricato!");
+                                  const shared = await shareOrDownloadCanvas(canvas, `vip-${item.vip_number}-${item.code}.png`, "Codice VIP Rumba Liguria");
+                                  if (!shared) toast.success("QR scaricato!");
                                 } catch { toast.error("Errore download"); }
                               }}
                               className="w-full py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-all text-[10px] font-medium"
