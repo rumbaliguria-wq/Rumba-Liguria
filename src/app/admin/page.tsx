@@ -1004,9 +1004,16 @@ export default function AdminPage() {
       // fall back to triggering the downloads one after another there.
       const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files });
       if (canShareFiles) {
-        await navigator.share({ files, title: "Codici VIP Rumba Liguria" });
-        toast.success("Salva o condividi le immagini dal pannello aperto");
-        return;
+        try {
+          await navigator.share({ files, title: "Codici VIP Rumba Liguria" });
+          toast.success("Salva o condividi le immagini dal pannello aperto");
+          return;
+        } catch (shareErr) {
+          // L'utente ha cancellato la condivisione: non è un errore, non scaricare nulla.
+          if (shareErr instanceof Error && shareErr.name === "AbortError") return;
+          // Il browser dice di poter condividere ma poi rifiuta (es. troppi file
+          // o troppo pesanti insieme) — invece di fallire, si scaricano uno a uno.
+        }
       }
 
       for (const file of files) {
