@@ -917,17 +917,33 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
 
   // ─── Derived ───
 
-  const filteredCards = cards.filter((c) => {
-    const matchesSearch =
-      !search.trim() ||
-      c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.email || "").toLowerCase().includes(search.toLowerCase()) ||
-      (c.id_number || "").toLowerCase().includes(search.toLowerCase()) ||
-      c.code.toLowerCase().includes(search.toLowerCase());
+  const matchesCardSearch = (c: Card) =>
+    !search.trim() ||
+    c.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.email || "").toLowerCase().includes(search.toLowerCase()) ||
+    (c.id_number || "").toLowerCase().includes(search.toLowerCase()) ||
+    c.code.toLowerCase().includes(search.toLowerCase());
+
+  const matchesCardType = (c: Card, type: string) => {
     const decoded = decodeIdType(c.id_type);
-    const matchesType = !typeFilter || decoded.preset === typeFilter;
-    return matchesSearch && matchesType;
+    return type === "SENZA_TIPO" ? !decoded.preset : decoded.preset === type;
+  };
+
+  const cardsBySearch = cards.filter(matchesCardSearch);
+  const cardTypeCount = (type: string) => cardsBySearch.filter((c) => matchesCardType(c, type)).length;
+
+  const filteredCards = cards.filter((c) => {
+    const matchesType = !typeFilter || matchesCardType(c, typeFilter);
+    return matchesCardSearch(c) && matchesType;
   });
+
+  const copyCardNames = () => {
+    const names = filteredCards.map((c) => c.full_name).filter(Boolean);
+    if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+    navigator.clipboard.writeText(names.join("\n"))
+      .then(() => toast.success(`${names.length} nomi copiati!`))
+      .catch(() => toast.error("Errore durante la copia"));
+  };
 
   const manualFilteredCards = cards.filter((c) => {
     if (!c.active) return false;
@@ -1023,6 +1039,41 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
         >
           <Plus size={16} />
           Nuova Tessera
+        </button>
+      </div>
+
+      {/* Type breakdown — clickable, plus copy names of whatever's filtered */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
+        {[
+          { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
+          { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
+          { type: "VIP", label: "VIP", color: "text-yellow-400", border: "border-yellow-500/10" },
+          { type: "CLIENTE", label: "Cliente", color: "text-pink-400", border: "border-pink-500/10" },
+          { type: "OTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
+          { type: "SENZA_TIPO", label: "Senza tipo", color: "text-gray-400", border: "border-white/10" },
+        ].map(({ type, label, color, border }) => (
+          <button
+            key={type}
+            onClick={() => setTypeFilter((prev) => (prev === type ? "" : type))}
+            className={`text-left p-2.5 rounded-xl bg-[#0a0a12] border transition-all ${typeFilter === type ? "border-white/40 ring-1 ring-white/20" : border} hover:border-white/25`}
+          >
+            <p className={`text-base sm:text-lg font-bold ${color}`}>{cardTypeCount(type)}</p>
+            <p className="text-[9px] text-gray-500">{label}</p>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+        <p className="text-[11px] text-gray-500">
+          {!typeFilter ? "Tutti i tipi" : `Filtrato: ${typeFilter === "SENZA_TIPO" ? "Senza tipo" : typeFilter === "OTRO" ? "Altro" : decodeIdType(typeFilter).label}`}
+          {!!typeFilter && (
+            <button onClick={() => setTypeFilter("")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+          )}
+        </p>
+        <button
+          onClick={copyCardNames}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+        >
+          <Copy size={12} /> Copia nomi
         </button>
       </div>
 

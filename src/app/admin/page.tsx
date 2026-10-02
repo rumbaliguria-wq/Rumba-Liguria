@@ -257,6 +257,7 @@ export default function AdminPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const [userSearch, setUserSearch] = useState("");
+  const [userTypeFilter, setUserTypeFilter] = useState<string>("all");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -3305,7 +3306,25 @@ export default function AdminPage() {
           </>)}
 
           {/* ─── Users Tab ─── */}
-        {activeTab === "users" && (
+        {activeTab === "users" && (() => {
+          const q = userSearch.toLowerCase().trim();
+          const bySearch = q ? users.filter(u =>
+            (u.name && u.name.toLowerCase().includes(q)) ||
+            u.email.toLowerCase().includes(q) ||
+            (u.phone && u.phone.includes(userSearch))
+          ) : users;
+          const matchesUserType = (u: typeof users[number], type: string) =>
+            type === "NONE" ? u.source !== "registered" : u.userType === type;
+          const userTypeCount = (type: string) => bySearch.filter(u => matchesUserType(u, type)).length;
+          const filteredUsers = userTypeFilter === "all" ? bySearch : bySearch.filter(u => matchesUserType(u, userTypeFilter));
+          const copyUserNames = () => {
+            const names = filteredUsers.map(u => u.name || u.email).filter(Boolean);
+            if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+            navigator.clipboard.writeText(names.join("\n"))
+              .then(() => toast.success(`${names.length} nomi copiati!`))
+              .catch(() => toast.error("Errore durante la copia"));
+          };
+          return (
           <div>
             <h2 className="text-base sm:text-lg font-bold mb-4">
               👥 Tutti gli Utenti ({users.length})
@@ -3326,18 +3345,45 @@ export default function AdminPage() {
                 </button>
               )}
             </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
+              {[
+                { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
+                { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
+                { type: "ALTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
+                { type: "NONE", label: "Non registrato", color: "text-gray-400", border: "border-white/10" },
+              ].map(({ type, label, color, border }) => (
+                <button
+                  key={type}
+                  onClick={() => setUserTypeFilter(prev => prev === type ? "all" : type)}
+                  className={`text-left p-3 rounded-xl bg-[#0a0a12] border transition-all ${userTypeFilter === type ? "border-white/40 ring-1 ring-white/20" : border} hover:border-white/25`}
+                >
+                  <p className={`text-lg sm:text-xl font-bold ${color}`}>{userTypeCount(type)}</p>
+                  <p className="text-[10px] text-gray-500">{label}</p>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-[11px] text-gray-500">
+                {userTypeFilter === "all" ? "Tutti i tipi" : `Filtrato: ${userTypeFilter === "NONE" ? "Non registrato" : userTypeFilter.charAt(0) + userTypeFilter.slice(1).toLowerCase()}`}
+                {userTypeFilter !== "all" && (
+                  <button onClick={() => setUserTypeFilter("all")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+                )}
+              </p>
+              <button
+                onClick={copyUserNames}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+              >
+                <Copy size={12} /> Copia nomi
+              </button>
+            </div>
             <div className="space-y-2">
-              {users.length === 0 ? (
+              {filteredUsers.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Users size={40} className="mx-auto mb-3 text-gray-600" />
                   <p>Nessun utente trovato</p>
                 </div>
               ) : (
-                (userSearch ? users.filter(u =>
-                  (u.name && u.name.toLowerCase().includes(userSearch.toLowerCase())) ||
-                  u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                  (u.phone && u.phone.includes(userSearch))
-                ) : users).map((user) => (
+                filteredUsers.map((user) => (
                     <div
                       key={user.id}
                       className="rounded-xl bg-[#0a0a12] border border-blue-500/10 animate-fade-in overflow-hidden"
@@ -3434,22 +3480,10 @@ export default function AdminPage() {
                   </div>
                 ))
               )}
-              {userSearch && users.length > 0 && (() => {
-                const filtered = users.filter(u =>
-                  (u.name && u.name.toLowerCase().includes(userSearch.toLowerCase())) ||
-                  u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                  (u.phone && u.phone.includes(userSearch))
-                );
-                return filtered.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <Search size={40} className="mx-auto mb-3 text-gray-600" />
-                    <p>Nessun utente trovato per "{userSearch}"</p>
-                  </div>
-                ) : null;
-              })()}
             </div>
           </div>
-          )}
+          );
+        })()}
 
             {/* ─── Reservations Tab ─── */}
             {activeTab === "reservations" && (
