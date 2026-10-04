@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
+import crypto from "crypto";
+
+function generateEntryCode(): string {
+  return crypto.randomBytes(6).toString("hex").toUpperCase();
+}
 
 export async function GET(
   _req: NextRequest,
@@ -8,6 +13,39 @@ export async function GET(
 ) {
   const { code } = await params;
   const supabase = getServiceClient();
+
+  // Codice Gruppo: un solo QR que vale para muchas personas — no es una
+  // fila de reservations propia, así que se resuelve aparte.
+  if (code.startsWith("GROUP-")) {
+    const { data: pass } = await supabase
+      .from("group_passes")
+      .select("id, label, max_entries, event_id, events(title, event_date_iso, archived)")
+      .eq("code", code)
+      .maybeSingle();
+    if (!pass) return NextResponse.json({ error: "Codice gruppo non trovato" }, { status: 404 });
+
+    const event = pass.events as unknown as { title: string; event_date_iso: string | null; archived: boolean } | null;
+    if (event?.event_date_iso && Date.now() > getEventExpiryUTC(event.event_date_iso)) {
+      return NextResponse.json({ error: "QR scaduto", expired: true }, { status: 400 });
+    }
+
+    const { count } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("group_pass_id", pass.id);
+    const entriesCount = count || 0;
+
+    if (pass.max_entries !== null && entriesCount >= pass.max_entries) {
+      return NextResponse.json({ error: `Cupo esaurito (${entriesCount}/${pass.max_entries})` }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      is_group: true,
+      event_id: pass.event_id,
+      events: { title: event?.title },
+      group: { label: pass.label || "Gruppo", entries_count: entriesCount, max_entries: pass.max_entries },
+    });
+  }
 
   const { data, error } = await supabase
     .from("reservations")
@@ -42,6 +80,51 @@ export async function PATCH(
     if (body?.toggle) toggle = true;
     if (body?.restore) restore = true;
   } catch {}
+
+  // Codice Gruppo: cada confirmación registra UNA entrada nueva (no "usa"
+  // un código único de una persona) — se re-chequea el cupo acá adentro
+  // por si dos escaneos llegaron casi juntos.
+  if (code.startsWith("GROUP-")) {
+    const { data: pass } = await supabase
+      .from("group_passes")
+      .select("id, label, max_entries, event_id, events(event_date_iso)")
+      .eq("code", code)
+      .maybeSingle();
+    if (!pass) return NextResponse.json({ error: "Codice gruppo non trovato" }, { status: 404 });
+
+    const eventDateIso = (pass.events as { event_date_iso?: string } | null)?.event_date_iso;
+    if (eventDateIso && Date.now() > getEventExpiryUTC(eventDateIso)) {
+      return NextResponse.json({ error: "QR scaduto", expired: true }, { status: 400 });
+    }
+
+    const { count } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("group_pass_id", pass.id);
+    const entriesCount = count || 0;
+    if (pass.max_entries !== null && entriesCount >= pass.max_entries) {
+      return NextResponse.json({ error: `Cupo esaurito (${entriesCount}/${pass.max_entries})` }, { status: 400 });
+    }
+
+    const { error: insertError } = await supabase.from("reservations").insert({
+      code: `GE-${generateEntryCode()}`,
+      event_id: pass.event_id,
+      user_email: "__group__",
+      user_name: `${pass.label || "Gruppo"} [grupo]`,
+      guest_count: 1,
+      status: "used",
+      checked_in_at: new Date().toISOString(),
+      group_pass_id: pass.id,
+    });
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+
+    const newCount = entriesCount + 1;
+    return NextResponse.json({
+      success: true,
+      is_group: true,
+      group: { label: pass.label || "Gruppo", entries_count: newCount, max_entries: pass.max_entries },
+    });
+  }
 
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(code);
 

@@ -32,6 +32,7 @@ import {
   Link2,
   Copy,
   ChevronDown,
+  Ticket,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
@@ -151,6 +152,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   // Scanner state
   const [showScanner, setShowScanner] = useState(false);
   const [scanEventId, setScanEventId] = useState("");
+  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
   const [scanResult, setScanResult] = useState<{ card: Card; visit_count: number; logged: boolean; scan: { scanned_at: string; event_id: string | null; events?: { title: string } | null } } | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -781,6 +783,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     setScanResult(null);
     setScanError(null);
     setScanLoading(false);
+    setLiveCounts(null);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -809,6 +812,9 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       setScanResult({ card: data.card, visit_count: data.visit_count, logged: data.logged, scan: data.scan });
       fetchCards();
       fetchStats();
+      if (scanEventId && scanEventId !== PRIVATE_EVENT) {
+        fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+      }
     } catch {
       setScanError("Errore di connessione");
     } finally {
@@ -1885,7 +1891,14 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
             <label className="text-xs text-gray-400 mb-1 block">Evento (obbligatorio per registrare l&apos;ingresso)</label>
             <select
               value={scanEventId}
-              onChange={(e) => setScanEventId(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setScanEventId(val);
+                setLiveCounts(null);
+                if (val && val !== PRIVATE_EVENT) {
+                  fetch(`/api/events/${val}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+                }
+              }}
               className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
             >
               <option value="" className="bg-[#0a0a12] text-white">Seleziona un evento...</option>
@@ -1895,6 +1908,12 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               ))}
             </select>
           </div>
+          {liveCounts && (
+            <div className="flex items-center justify-center gap-4 px-4 py-2 bg-black/80 border-b border-white/10 flex-shrink-0 text-xs">
+              <span className="flex items-center gap-1.5 text-blue-400"><Ticket size={12} /> Prenotazioni: <strong className="text-white">{liveCounts.reservations}</strong></span>
+              <span className="flex items-center gap-1.5 text-purple-400"><IdCard size={12} /> Tessere: <strong className="text-white">{liveCounts.tessere}</strong></span>
+            </div>
+          )}
 
           <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
             {!scanEventId ? (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
+import crypto from "crypto";
 
 // No hay sesión: cada pedido (login y cada escaneo) manda de nuevo nombre +
 // PIN y se valida en el momento — igual que /api/rrpp y /api/colaborador.
@@ -48,7 +49,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, event_title: event.title, checked_in_count: checkedInCount ?? 0 });
   }
 
-  const cleanCode = code.trim();
+  const cleanCode = code.trim().toUpperCase();
+
+  // Codice Gruppo: un solo QR que vale para muchas personas en este evento.
+  if (cleanCode.startsWith("GROUP-")) {
+    const { data: pass } = await supabase
+      .from("group_passes")
+      .select("id, label, max_entries, event_id")
+      .eq("code", cleanCode)
+      .maybeSingle();
+    if (!pass) return NextResponse.json({ error: "Codice non trovato" }, { status: 404 });
+    if (pass.event_id !== event.id) {
+      const { data: otherEvent } = await supabase.from("events").select("title").eq("id", pass.event_id).maybeSingle();
+      return NextResponse.json({ error: `Codice di un altro evento (${otherEvent?.title || "sconosciuto"})` }, { status: 400 });
+    }
+
+    const { count: groupCount } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("group_pass_id", pass.id);
+    const entriesCount = groupCount || 0;
+    if (pass.max_entries !== null && entriesCount >= pass.max_entries) {
+      return NextResponse.json({ error: `Cupo esaurito (${entriesCount}/${pass.max_entries})` }, { status: 400 });
+    }
+
+    const { error: insertError } = await supabase.from("reservations").insert({
+      code: `GE-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
+      event_id: pass.event_id,
+      user_email: "__group__",
+      user_name: `${pass.label || "Gruppo"} [grupo]`,
+      guest_count: 1,
+      status: "used",
+      checked_in_at: new Date().toISOString(),
+      group_pass_id: pass.id,
+    });
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+
+    const newCount = entriesCount + 1;
+    const cap = pass.max_entries ? `${newCount}/${pass.max_entries}` : `${newCount}`;
+    return NextResponse.json({
+      valid: true,
+      already_used: false,
+      name: `👥 ${pass.label || "Gruppo"} (${cap})`,
+      guest_count: 1,
+      checked_in_count: (checkedInCount ?? 0) + 1,
+    });
+  }
+
   const { data: reservation } = await supabase
     .from("reservations")
     .select("id, status, event_id, user_name, guest_count")

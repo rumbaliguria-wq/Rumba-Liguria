@@ -44,6 +44,7 @@ import {
     Download,
     DoorOpen,
     Ban,
+    IdCard,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -195,6 +196,7 @@ export default function AdminPage() {
   const [reservationTypeFilter, setReservationTypeFilter] = useState<string>("all");
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
+  const [statsTessereCount, setStatsTessereCount] = useState<number | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -243,6 +245,14 @@ export default function AdminPage() {
   const [expandedDoorId, setExpandedDoorId] = useState<string | null>(null);
   const [editingDoorPinId, setEditingDoorPinId] = useState<string | null>(null);
   const [doorPinDraft, setDoorPinDraft] = useState("");
+  // Codice Gruppo: un solo QR que vale para mucha gente (100-200), con
+  // tope opcional — cada escaneo suma una entrada en vez de bloquearse.
+  const [groupPasses, setGroupPasses] = useState<{ id: string; code: string; label: string | null; max_entries: number | null; entries_count: number; event_id: string; events: { title: string; archived: boolean } | null }[]>([]);
+  const [showGroupSection, setShowGroupSection] = useState(false);
+  const [groupEventId, setGroupEventId] = useState("");
+  const [groupLabel, setGroupLabel] = useState("");
+  const [groupMaxInput, setGroupMaxInput] = useState("");
+  const [groupSaving, setGroupSaving] = useState(false);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
@@ -251,7 +261,8 @@ export default function AdminPage() {
   const [showScanEventPicker, setShowScanEventPicker] = useState(false);
   const [scanEventId, setScanEventId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
-  const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean } | null>(null);
+  const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean; isGroup?: boolean; groupLabel?: string; groupCount?: number; groupMax?: number | null } | null>(null);
+  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
   const [scanConfirming, setScanConfirming] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
@@ -285,6 +296,7 @@ export default function AdminPage() {
     setScanLoading(false);
     setScanConfirming(false);
     setScanEventId(null);
+    setLiveCounts(null);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -324,6 +336,21 @@ export default function AdminPage() {
         setScanLoading(false);
         return;
       }
+      if (reservation.is_group) {
+        setScanResult({
+          name: reservation.group.label,
+          email: "",
+          event: reservation.events?.title || "Evento",
+          code,
+          rawCode: code,
+          isGroup: true,
+          groupLabel: reservation.group.label,
+          groupCount: reservation.group.entries_count,
+          groupMax: reservation.group.max_entries,
+        });
+        setScanLoading(false);
+        return;
+      }
       if (reservation.status === "used") { setScanError("Già utilizzato"); setScanLoading(false); return; }
       if (reservation.status === "cancelled") { setScanError("Prenotazione cancellata"); setScanLoading(false); return; }
       if (reservation.status === "expired") { setScanError("QR scaduto"); setScanLoading(false); return; }
@@ -358,18 +385,24 @@ export default function AdminPage() {
     setScanConfirming(true);
     try {
       const patchRes = await fetch(`/api/reservations/${scanResult.rawCode}`, { method: "PATCH" });
+      const d = await patchRes.json().catch(() => ({}));
       if (!patchRes.ok) {
-        const d = await patchRes.json();
         setScanError(d.error || "Errore validazione");
         setScanResult(null);
         setScanConfirming(false);
         return;
       }
+      if (d.is_group) {
+        setScanResult((prev) => prev ? { ...prev, groupCount: d.group.entries_count } : prev);
+      }
       setScanSuccess(true);
       fetchReservationsRef.current?.();
+      if (scanEventId) {
+        fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+      }
     } catch { setScanError("Errore di connessione"); setScanResult(null); }
     finally { setScanConfirming(false); }
-  }, [scanResult]);
+  }, [scanResult, scanEventId]);
 
   const startScanner = useCallback(async () => {
     setScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
@@ -495,6 +528,14 @@ export default function AdminPage() {
     } catch {}
   }, []);
 
+  const fetchGroupPasses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/group-passes");
+      const data = await res.json();
+      if (Array.isArray(data)) setGroupPasses(data);
+    } catch {}
+  }, []);
+
     const formatDisplayName = (name: string | null | undefined, email: string): string => {
       if (!name || name.includes("@")) {
         return email
@@ -608,12 +649,13 @@ export default function AdminPage() {
       fetchGallery();
       fetchRentals();
       fetchDoorPasses();
+      fetchGroupPasses();
       // Lightweight counts for the "Panoramica" dashboard — reuse the same
       // endpoints CardsPanel and the VIP generator already fetch from.
       fetch("/api/reservations/vip").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setVipCodesCount(d.length); }).catch(() => {});
       fetch("/api/cards").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setClientCardsCount(d.length); }).catch(() => {});
     }
-  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals, fetchDoorPasses]);
+  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals, fetchDoorPasses, fetchGroupPasses]);
 
   const finishLogin = () => {
     // La cookie de sesión ya la ha puesto el servidor (login directo o 2FA).
@@ -1260,6 +1302,39 @@ export default function AdminPage() {
         body: JSON.stringify({ id: pass.id }),
       });
       if (res.ok) { toast.success("Accesso eliminato"); fetchDoorPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
+
+  const handleCreateGroupPass = async () => {
+    if (!groupEventId) { toast.error("Seleziona un evento"); return; }
+    setGroupSaving(true);
+    try {
+      const res = await fetch("/api/admin/group-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: groupEventId, label: groupLabel.trim() || undefined, max_entries: groupMaxInput.trim() || null }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success("Codice gruppo creato!");
+        setGroupLabel("");
+        setGroupMaxInput("");
+        fetchGroupPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setGroupSaving(false); }
+  };
+
+  const handleDeleteGroupPass = async (pass: { id: string; label: string | null }) => {
+    if (!confirm(`Eliminare definitivamente il codice "${pass.label || "Gruppo"}"? Le entrate già registrate restano nelle statistiche.`)) return;
+    try {
+      const res = await fetch("/api/admin/group-passes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id }),
+      });
+      if (res.ok) { toast.success("Codice eliminato"); fetchGroupPasses(); }
       else toast.error("Errore");
     } catch { toast.error("Errore di connessione"); }
   };
@@ -2596,6 +2671,122 @@ export default function AdminPage() {
               </div>
             )}
 
+            {/* ─── Codice Gruppo ─── */}
+            <button
+              onClick={() => setShowGroupSection(!showGroupSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <Users size={16} className="text-pink-400" />
+                Codice Gruppo (un QR per molte persone)
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showGroupSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showGroupSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-pink-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Per un gruppo grande (es. 100-200 persone) a cui un altro locale ti ha dato un solo QR valido per
+                  tutti. Ogni scansione conta come un ingresso in più — non si blocca dopo il primo uso, come i
+                  biglietti normali. Se metti un tetto, si rifiuta da solo una volta raggiunto.
+                </p>
+                <div className="flex items-end gap-3 mb-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                    <select
+                      value={groupEventId}
+                      onChange={(e) => setGroupEventId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40 [color-scheme:dark]"
+                    >
+                      <option value="">Seleziona evento</option>
+                      {events.filter(e => !e.archived).map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Nome (opzionale)</label>
+                    <input
+                      type="text"
+                      value={groupLabel}
+                      onChange={(e) => setGroupLabel(e.target.value)}
+                      placeholder="es. Gruppo Erasmus"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="w-24 flex-shrink-0">
+                    <label className="text-xs text-gray-400 mb-1 block">Tetto max.</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={groupMaxInput}
+                      onChange={(e) => setGroupMaxInput(e.target.value)}
+                      placeholder="es. 150"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleCreateGroupPass}
+                    disabled={groupSaving}
+                    className="px-4 py-2.5 rounded-xl bg-pink-600 text-white font-semibold text-sm hover:bg-pink-500 transition-all disabled:opacity-50"
+                  >
+                    {groupSaving ? "..." : "Genera"}
+                  </button>
+                </div>
+
+                {groupPasses.length === 0 ? (
+                  <p className="text-xs text-gray-500">Nessun codice gruppo creato ancora</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {groupPasses.map((pass) => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                      const url = `${origin}/verify/${pass.code}`;
+                      const full = pass.max_entries !== null && pass.entries_count >= pass.max_entries;
+                      return (
+                        <div key={pass.id} className={`p-3 rounded-xl bg-white/5 ${pass.events?.archived ? "opacity-50" : ""}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <span className="text-sm font-medium text-white truncate">{pass.label || "Gruppo"}</span>
+                                <span className="text-[9px] text-gray-500 truncate">{pass.events?.title}</span>
+                                {full && <span className="text-[9px] text-red-400 flex-shrink-0">Pieno</span>}
+                              </div>
+                              <span className="text-xs font-bold text-pink-400">
+                                {pass.entries_count}{pass.max_entries !== null ? ` / ${pass.max_entries}` : ""} entrate
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteGroupPass(pass)}
+                              title="Elimina"
+                              className="p-1 rounded text-gray-500 hover:text-red-400 flex-shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                          <div className="mt-2 flex items-center gap-3">
+                            <div className="p-1.5 bg-white rounded-lg flex-shrink-0">
+                              <QRCodeSVG value={url} size={70} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[9px] text-gray-500 mb-1">QR da condividere con il gruppo:</p>
+                              <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                <span className="text-[10px] text-gray-400 flex-1 truncate">{url}</span>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(url).then(() => toast.success("Link copiato!")); }}
+                                  className="px-2 py-1 rounded bg-pink-500/20 text-pink-400 text-[10px] font-medium hover:bg-pink-500/30 flex items-center gap-1 flex-shrink-0"
+                                >
+                                  <Copy size={10} /> Copia
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Event Form Modal */}
             {showForm && (
                 <div
@@ -3267,7 +3458,11 @@ export default function AdminPage() {
                           </div>
                           <div className="flex gap-1.5 flex-shrink-0">
                             <button
-                              onClick={() => setStatsEvent(event)}
+                              onClick={() => {
+                                setStatsEvent(event);
+                                setStatsTessereCount(null);
+                                fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                              }}
                               title="Statistiche evento"
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 transition-all text-[11px] font-medium"
                             >
@@ -3562,7 +3757,7 @@ export default function AdminPage() {
                     : baseFiltered.filter(r => matchesType(r, reservationTypeFilter));
                   const copyNames = () => {
                     const names = filtered
-                      .filter(r => r.status !== "cancelled" && r.user_email && !r.user_email.startsWith("__link__") && r.user_email !== "__vip__")
+                      .filter(r => r.status !== "cancelled" && r.user_email && !r.user_email.startsWith("__link__") && r.user_email !== "__vip__" && r.user_email !== "__group__")
                       .map(r => r.user_name)
                       .filter(Boolean);
                     if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
@@ -4312,7 +4507,13 @@ export default function AdminPage() {
               {events.filter(e => !e.archived).map(e => (
                 <button
                   key={e.id}
-                  onClick={() => { setScanEventId(e.id); setShowScanEventPicker(false); setShowScanner(true); startScanner(); }}
+                  onClick={() => {
+                    setScanEventId(e.id);
+                    setShowScanEventPicker(false);
+                    setShowScanner(true);
+                    startScanner();
+                    fetch(`/api/events/${e.id}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+                  }}
                   className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
                 >
                   <div className="w-9 h-9 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
@@ -4348,6 +4549,12 @@ export default function AdminPage() {
               <X size={18} />
             </button>
           </div>
+          {liveCounts && (
+            <div className="flex items-center justify-center gap-4 px-4 py-2 bg-black/80 border-b border-white/10 flex-shrink-0 text-xs">
+              <span className="flex items-center gap-1.5 text-blue-400"><Ticket size={12} /> Prenotazioni: <strong className="text-white">{liveCounts.reservations}</strong></span>
+              <span className="flex items-center gap-1.5 text-purple-400"><IdCard size={12} /> Tessere: <strong className="text-white">{liveCounts.tessere}</strong></span>
+            </div>
+          )}
           <div className="relative flex-1 overflow-hidden bg-black flex items-center justify-center">
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
             <canvas ref={canvasRef} className="hidden" />
@@ -4372,12 +4579,18 @@ export default function AdminPage() {
               <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-6">
                 <div className="bg-[#0a0a12] border border-blue-500/40 rounded-2xl p-6 w-full max-w-sm">
                   <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                      <Users size={24} className="text-blue-400" />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${scanResult.isGroup ? "bg-pink-500/20" : "bg-blue-500/20"}`}>
+                      <Users size={24} className={scanResult.isGroup ? "text-pink-400" : "text-blue-400"} />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-base font-bold text-white truncate">{scanResult.name}</h3>
-                      <p className="text-xs text-gray-400 truncate">{scanResult.email}</p>
+                      <h3 className="text-base font-bold text-white truncate">{scanResult.isGroup ? `👥 ${scanResult.groupLabel}` : scanResult.name}</h3>
+                      {scanResult.isGroup ? (
+                        <p className="text-xs text-pink-400 truncate font-semibold">
+                          Entrata {(scanResult.groupCount ?? 0) + 1}{scanResult.groupMax !== null && scanResult.groupMax !== undefined ? ` / ${scanResult.groupMax}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 truncate">{scanResult.email}</p>
+                      )}
                     </div>
                   </div>
                   {/* User type badge */}
@@ -4390,16 +4603,19 @@ export default function AdminPage() {
                       }`}>{scanResult.userType}</span>
                     </div>
                   )}
-                  <div className="bg-white/5 rounded-xl p-3 mb-5 space-y-1.5">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Calendar size={14} className="text-blue-400 flex-shrink-0" />
-                      <span className="text-white font-medium truncate">{scanResult.event}</span>
+                  {!scanResult.isGroup && (
+                    <div className="bg-white/5 rounded-xl p-3 mb-5 space-y-1.5">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Calendar size={14} className="text-blue-400 flex-shrink-0" />
+                        <span className="text-white font-medium truncate">{scanResult.event}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <Ticket size={12} className="flex-shrink-0" />
+                        <span className="font-mono">{scanResult.code}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <Ticket size={12} className="flex-shrink-0" />
-                      <span className="font-mono">{scanResult.code}</span>
-                    </div>
-                  </div>
+                  )}
+                  {scanResult.isGroup && <div className="mb-5" />}
                   <div className="flex gap-3">
                     <button
                       onClick={() => { setScanResult(null); lastScannedRef.current = null; startScanner(); }}
@@ -4432,17 +4648,28 @@ export default function AdminPage() {
                   <h3 className="text-xl font-bold mb-3 text-green-400">
                     ✅ Accesso Consentito
                   </h3>
-                  <p className="text-white font-bold text-lg mb-0.5">{scanResult.name}</p>
-                  <p className="text-gray-400 text-sm mb-1">{scanResult.email}</p>
-                  {scanResult.userType && (
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold mb-1 ${
-                      scanResult.userType === "ERASMUS" ? "bg-green-500/15 text-green-400" :
-                      scanResult.userType === "UNIVERSITARIO" ? "bg-blue-500/15 text-blue-400" :
-                      "bg-purple-500/15 text-purple-400"
-                    }`}>{scanResult.userType}</span>
+                  {scanResult.isGroup ? (
+                    <>
+                      <p className="text-white font-bold text-lg mb-0.5">👥 {scanResult.groupLabel}</p>
+                      <p className="text-pink-400 text-sm font-semibold mb-6">
+                        {scanResult.groupCount}{scanResult.groupMax !== null && scanResult.groupMax !== undefined ? ` / ${scanResult.groupMax}` : ""} entrate
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-white font-bold text-lg mb-0.5">{scanResult.name}</p>
+                      <p className="text-gray-400 text-sm mb-1">{scanResult.email}</p>
+                      {scanResult.userType && (
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold mb-1 ${
+                          scanResult.userType === "ERASMUS" ? "bg-green-500/15 text-green-400" :
+                          scanResult.userType === "UNIVERSITARIO" ? "bg-blue-500/15 text-blue-400" :
+                          "bg-purple-500/15 text-purple-400"
+                        }`}>{scanResult.userType}</span>
+                      )}
+                      <p className="text-blue-400 text-sm font-medium mt-1">{scanResult.event}</p>
+                      <p className="text-gray-600 text-xs font-mono mb-6">{scanResult.code}</p>
+                    </>
                   )}
-                  <p className="text-blue-400 text-sm font-medium mt-1">{scanResult.event}</p>
-                  <p className="text-gray-600 text-xs font-mono mb-6">{scanResult.code}</p>
                   <div className="flex gap-3">
                     <button onClick={() => { setScanSuccess(false); setScanResult(null); setScanError(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
                     <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
@@ -4642,6 +4869,12 @@ export default function AdminPage() {
                     <div className="h-full rounded-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
+                {statsTessereCount !== null && statsTessereCount > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-pink-400" /> Entrate con tessera</span>
+                    <span className="text-sm font-bold text-pink-400">{statsTessereCount}</span>
+                  </div>
+                )}
                 {fillRate !== null && (
                   <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
                     <div className="flex items-center justify-between mb-2">
