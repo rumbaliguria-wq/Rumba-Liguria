@@ -132,6 +132,9 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
+  const [citySearch, setCitySearch] = useState("");
+  const [showCitySection, setShowCitySection] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
 
   const [showForm, setShowForm] = useState(false);
@@ -938,9 +941,30 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   const cardsBySearch = cards.filter(matchesCardSearch);
   const cardTypeCount = (type: string) => cardsBySearch.filter((c) => matchesCardType(c, type)).length;
 
+  // Normaliza para agrupar sin que "sevilla", "Sevilla " y "SEVILLA" cuenten
+  // como tres ciudades distintas — se muestra con mayúscula inicial.
+  const normalizeCity = (city: string | null) => (city || "").trim().replace(/\s+/g, " ");
+  const cityKey = (city: string | null) => normalizeCity(city).toLowerCase();
+  const matchesCardCity = (c: Card) => !cityFilter || cityKey(c.city) === cityFilter;
+
+  const cardsByType = cardsBySearch.filter((c) => !typeFilter || matchesCardType(c, typeFilter));
+  const topCities = (() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const c of cardsByType) {
+      if (!normalizeCity(c.city)) continue;
+      const key = cityKey(c.city);
+      const entry = counts.get(key);
+      if (entry) entry.count += 1;
+      else counts.set(key, { label: normalizeCity(c.city), count: 1 });
+    }
+    return Array.from(counts.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.count - a.count);
+  })();
+
   const filteredCards = cards.filter((c) => {
     const matchesType = !typeFilter || matchesCardType(c, typeFilter);
-    return matchesCardSearch(c) && matchesType;
+    return matchesCardSearch(c) && matchesType && matchesCardCity(c);
   });
 
   const copyCardNames = () => {
@@ -1074,6 +1098,13 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
           {!!typeFilter && (
             <button onClick={() => setTypeFilter("")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
           )}
+          {!!cityFilter && (
+            <>
+              <span className="mx-1.5 text-gray-700">·</span>
+              {topCities.find((c) => c.key === cityFilter)?.label || cityFilter}
+              <button onClick={() => setCityFilter("")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+            </>
+          )}
         </p>
         <button
           onClick={copyCardNames}
@@ -1082,6 +1113,53 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
           <Copy size={12} /> Copia nomi
         </button>
       </div>
+
+      {/* City breakdown — collapsible, with a free-text search for cities not in the top list */}
+      <button
+        onClick={() => setShowCitySection(!showCitySection)}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+      >
+        <span className="flex items-center gap-2 text-sm">
+          <MapPin size={16} className="text-orange-400" />
+          Città {cityFilter && <span className="text-orange-400">— {topCities.find((c) => c.key === cityFilter)?.label || cityFilter}</span>}
+        </span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${showCitySection ? "rotate-180" : ""}`} />
+      </button>
+      {showCitySection && (
+        <div className="p-4 rounded-xl bg-white/5 border border-orange-500/20 mb-4">
+          {topCities.length === 0 ? (
+            <p className="text-xs text-gray-500">Nessuna tessera con città indicata</p>
+          ) : (
+            <>
+              <div className="relative mb-3">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="text"
+                  value={citySearch}
+                  onChange={(e) => setCitySearch(e.target.value)}
+                  placeholder="Cerca un'altra città..."
+                  className="w-full pl-8 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-orange-500/40 transition-all"
+                />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+                {topCities
+                  .filter((c) => !citySearch.trim() || c.label.toLowerCase().includes(citySearch.toLowerCase()))
+                  .slice(0, citySearch.trim() ? undefined : 9)
+                  .map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => setCityFilter((prev) => (prev === c.key ? "" : c.key))}
+                      className={`text-left p-2.5 rounded-xl bg-[#0a0a12] border transition-all ${cityFilter === c.key ? "border-orange-500/50 ring-1 ring-orange-500/20" : "border-white/10"} hover:border-white/25`}
+                    >
+                      <p className="text-base sm:text-lg font-bold text-orange-400">{c.count}</p>
+                      <p className="text-[9px] text-gray-500 truncate">{c.label}</p>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Collaboratori esterni */}
       <button
