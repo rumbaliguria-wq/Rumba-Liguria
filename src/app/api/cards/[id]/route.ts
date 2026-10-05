@@ -73,13 +73,20 @@ export async function PUT(
 
   // Si se acaba de desactivar y la tessera tiene un email guardado, se le
   // avisa con el motivo — en el idioma configurado para esa tessera.
+  // Se espera a que termine de enviarse (en vez de lanzarlo "de fondo")
+  // porque en Vercel la función puede cortarse apenas se manda la respuesta,
+  // truncando un envío que todavía estaba en curso.
   if (updates.active === false && data.email) {
     const lang = (["it", "es", "en"].includes(data.language) ? data.language : "it") as "it" | "es" | "en";
-    sendEmail({
-      to: data.email,
-      subject: cardDeactivatedSubject(lang),
-      html: cardDeactivatedHtml({ fullName: data.full_name, reason: data.inactive_reason, lang }),
-    }).catch(() => {/* ignore email errors */});
+    try {
+      await sendEmail({
+        to: data.email,
+        subject: cardDeactivatedSubject(lang),
+        html: cardDeactivatedHtml({ fullName: data.full_name, reason: data.inactive_reason, lang }),
+      });
+    } catch (emailError) {
+      console.error("Card deactivation email failed:", emailError);
+    }
   }
 
   return NextResponse.json(data);
