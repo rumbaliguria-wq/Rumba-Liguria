@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
+import { sendEmail, cardDeactivatedHtml, cardDeactivatedSubject } from "@/lib/email";
 
 export async function GET(
   _req: NextRequest,
@@ -69,6 +70,17 @@ export async function PUT(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Si se acaba de desactivar y la tessera tiene un email guardado, se le
+  // avisa con el motivo — en el idioma configurado para esa tessera.
+  if (updates.active === false && data.email) {
+    const lang = (["it", "es", "en"].includes(data.language) ? data.language : "it") as "it" | "es" | "en";
+    sendEmail({
+      to: data.email,
+      subject: cardDeactivatedSubject(lang),
+      html: cardDeactivatedHtml({ fullName: data.full_name, reason: data.inactive_reason, lang }),
+    }).catch(() => {/* ignore email errors */});
+  }
 
   return NextResponse.json(data);
 }

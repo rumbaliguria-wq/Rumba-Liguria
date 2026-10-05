@@ -165,3 +165,64 @@ export function qrTicketHtml(opts: {
 </body>
 </html>`;
 }
+
+const CARD_DEACTIVATED_TEXT = {
+  it: {
+    subject: "La tua tessera Rumba Liguria è stata disattivata",
+    title: "Tessera disattivata",
+    hello: (name: string) => `Ciao ${name},`,
+    intro: "Ti scriviamo per informarti che la tua tessera digitale Rumba Liguria è stata disattivata.",
+    reasonLabel: "Motivo:",
+    noReason: "Non è stato indicato un motivo specifico.",
+    outro: "Se pensi che si tratti di un errore, scrivici e lo verifichiamo con piacere.",
+  },
+  es: {
+    subject: "Tu tarjeta Rumba Liguria ha sido desactivada",
+    title: "Tarjeta desactivada",
+    hello: (name: string) => `Hola ${name},`,
+    intro: "Te escribimos para informarte que tu tarjeta digital Rumba Liguria ha sido desactivada.",
+    reasonLabel: "Motivo:",
+    noReason: "No se indicó un motivo específico.",
+    outro: "Si crees que es un error, escríbenos y lo revisamos con gusto.",
+  },
+  en: {
+    subject: "Your Rumba Liguria card has been deactivated",
+    title: "Card deactivated",
+    hello: (name: string) => `Hi ${name},`,
+    intro: "We're writing to let you know that your Rumba Liguria digital card has been deactivated.",
+    reasonLabel: "Reason:",
+    noReason: "No specific reason was given.",
+    outro: "If you think this is a mistake, reach out and we'll be happy to check it.",
+  },
+} as const;
+
+export function cardDeactivatedSubject(lang: "it" | "es" | "en") {
+  return (CARD_DEACTIVATED_TEXT[lang] || CARD_DEACTIVATED_TEXT.it).subject;
+}
+
+export function cardDeactivatedHtml(opts: { fullName: string; reason: string | null; lang: "it" | "es" | "en" }) {
+  const t = CARD_DEACTIVATED_TEXT[opts.lang] || CARD_DEACTIVATED_TEXT.it;
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#000;font-family:sans-serif;color:#fff;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain"
+        width="64" height="64" style="border-radius:50%;border:2px solid #ef4444;" alt="Rumba Liguria" />
+      <h1 style="color:#ef4444;font-size:22px;margin:12px 0 4px;">${t.title}</h1>
+    </div>
+    <div style="background:#0a0a12;border:1px solid #3a1e1e;border-radius:16px;padding:24px;">
+      <p style="color:#fff;font-size:15px;margin:0 0 10px;">${t.hello(opts.fullName)}</p>
+      <p style="color:#d1d5db;font-size:14px;line-height:1.6;margin:0 0 16px;">${t.intro}</p>
+      <div style="background:#1a0f0f;border:1px solid #3a1e1e;border-radius:10px;padding:14px;margin:0 0 16px;">
+        <p style="color:#f87171;font-size:12px;font-weight:600;margin:0 0 4px;">${t.reasonLabel}</p>
+        <p style="color:#e5e7eb;font-size:14px;margin:0;">${opts.reason || t.noReason}</p>
+      </div>
+      <p style="color:#9ca3af;font-size:13px;line-height:1.6;margin:0;">${t.outro}</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
