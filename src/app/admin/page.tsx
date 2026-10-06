@@ -181,6 +181,7 @@ export default function AdminPage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notifyOnPublish, setNotifyOnPublish] = useState(false);
+  const [shareWhatsappOnPublish, setShareWhatsappOnPublish] = useState(false);
   const [notifying, setNotifying] = useState<string | null>(null);
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [showCredCurrentPass, setShowCredCurrentPass] = useState(false);
@@ -899,6 +900,19 @@ export default function AdminPage() {
     }
   };
 
+  // Arma el mensaje + link del evento para que el admin elija a quién
+  // mandarlo por WhatsApp (no es un envío automático a nadie).
+  const buildEventWhatsappUrl = (ev: { id: string; title: string; event_date?: string; event_time?: string; venue_name?: string; organizer?: string }) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+    const link = `${origin}/?evento=${ev.id}#eventi`;
+    const lines = [`🎉 Nuovo evento: ${ev.title}`];
+    if (ev.event_date) lines.push(`📅 ${ev.event_date}${ev.event_time ? ` — ${ev.event_time}` : ""}`);
+    const place = ev.venue_name || ev.organizer;
+    if (place) lines.push(`📍 ${place}`);
+    lines.push("", link);
+    return `https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`;
+  };
+
   const handleSave = async () => {
     if (!formData.title.trim()) {
       toast.error("Il titolo è obbligatorio");
@@ -937,7 +951,11 @@ export default function AdminPage() {
             body: JSON.stringify(body),
           });
         if (res.ok) {
+          const newEvent = await res.json();
           toast.success("Evento creato!");
+          if (shareWhatsappOnPublish) {
+            window.open(buildEventWhatsappUrl(newEvent), "_blank");
+          }
           resetForm();
           fetchEvents();
         } else {
@@ -1629,6 +1647,7 @@ export default function AdminPage() {
     setShowForm(false);
     setEditingEvent(null);
     setNotifyOnPublish(false);
+    setShareWhatsappOnPublish(false);
     setFormData({
     title: "",
       details: "",
@@ -3279,6 +3298,40 @@ export default function AdminPage() {
                               <p className="text-[10px] text-gray-500">Manda l&apos;evento a {users.length} utenti registrati</p>
                             </div>
                           </div>
+                        )}
+
+                        {/* WhatsApp share — never automatic, apri sempre la scelta del destinatario */}
+                        {!editingEvent ? (
+                          <div
+                            onClick={() => setShareWhatsappOnPublish(!shareWhatsappOnPublish)}
+                            className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all ${
+                              shareWhatsappOnPublish
+                                ? "bg-green-500/10 border-green-500/30"
+                                : "bg-white/5 border-white/10 hover:border-white/20"
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
+                              shareWhatsappOnPublish ? "bg-green-500 border-green-500" : "border-gray-600"
+                            }`}>
+                              {shareWhatsappOnPublish && <span className="text-white text-[10px]">✓</span>}
+                            </div>
+                            <div>
+                              <p className="text-sm text-white font-medium flex items-center gap-1.5">
+                                <MessageCircle size={14} className="text-green-400" />
+                                📲 Condividi su WhatsApp
+                              </p>
+                              <p className="text-[10px] text-gray-500">Dopo aver pubblicato, apre WhatsApp per scegliere a chi mandarlo</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => window.open(buildEventWhatsappUrl(editingEvent), "_blank")}
+                            className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 font-medium text-sm hover:bg-green-500/20 transition-all active:scale-[0.98]"
+                          >
+                            <MessageCircle size={14} />
+                            📲 Condividi su WhatsApp
+                          </button>
                         )}
 
                       {/* Submit */}

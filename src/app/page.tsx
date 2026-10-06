@@ -182,6 +182,7 @@ export default function Home() {
   // preview + "Vedi Evento"; the popup carries description, reservation,
   // map, everything).
   const [detailEventId, setDetailEventId] = useState<string | null>(null);
+  const [pendingEventId, setPendingEventId] = useState<string | null>(null);
   const [snowflakes, setSnowflakes] = useState<{left: number;duration: number;delay: number;opacity: number;size: number;char: string;}[]>([]);
   const [accentColor, setAccentColor] = useState("#3b82f6");
   const [cancelledReservations, setCancelledReservations] = useState<{code: string;eventTitle: string;}[]>([]);
@@ -272,6 +273,10 @@ export default function Home() {
         toast.info(t(savedLang, "payment.cancelled"));
         window.history.replaceState({}, "", window.location.pathname);
       }
+      // Link directo a un evento puntual (ej. el que se comparte por
+      // WhatsApp desde el panel) — se abre apenas los eventos terminan de cargar.
+      const evento = params.get("evento");
+      if (evento) setPendingEventId(evento);
       const ref = params.get("ref");
       if (ref) {
         sessionStorage.setItem("rumba_ref", ref);
@@ -291,6 +296,13 @@ export default function Home() {
       }
     } catch {}
   }, [router]);
+
+  useEffect(() => {
+    if (pendingEventId && events.some((e) => e.id === pendingEventId)) {
+      setDetailEventId(pendingEventId);
+      setPendingEventId(null);
+    }
+  }, [events, pendingEventId]);
 
   useEffect(() => {
     const saved = localStorage.getItem("rumba_lang");
