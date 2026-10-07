@@ -54,6 +54,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
+import { decodeIdType } from "@/lib/cardTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
 } from "./types";
@@ -258,12 +259,11 @@ export default function AdminPage() {
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
-  const [showScanChooser, setShowScanChooser] = useState(false);
-  const [cardScanTrigger, setCardScanTrigger] = useState(0);
   const [showScanEventPicker, setShowScanEventPicker] = useState(false);
   const [scanEventId, setScanEventId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean; isGroup?: boolean; groupLabel?: string; groupCount?: number; groupMax?: number | null } | null>(null);
+  const [cardScanResult, setCardScanResult] = useState<{ full_name: string; photo_url: string | null; id_type: string | null; visit_count: number; logged: boolean; eventTitle?: string } | null>(null);
   const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
   const [scanConfirming, setScanConfirming] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -293,6 +293,7 @@ export default function AdminPage() {
     stopScanner();
     setShowScanner(false);
     setScanResult(null);
+    setCardScanResult(null);
     setScanError(null);
     setScanSuccess(false);
     setScanLoading(false);
@@ -323,11 +324,47 @@ export default function AdminPage() {
     setScanLoading(true);
     setScanError(null);
     setScanResult(null);
+    setCardScanResult(null);
     try {
       // Only fetch info — do NOT confirm yet, wait for user to press confirm button
       const infoRes = await fetch(`/api/reservations/${code}`);
       if (!infoRes.ok) {
         const d = await infoRes.json();
+        // Non è un codice di prenotazione — prova come tessera cliente prima
+        // di arrendersi. Così l'addetto non deve scegliere in anticipo cosa
+        // sta per scansionare: biglietto o tessera, va bene lo stesso scanner.
+        if (d.error === "Reservation not found") {
+          try {
+            const cardRes = await fetch("/api/cards/scan", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code, event_id: scanEventId }),
+            });
+            const cardData = await cardRes.json();
+            if (cardRes.ok) {
+              setCardScanResult({
+                full_name: cardData.card.full_name,
+                photo_url: cardData.card.photo_url,
+                id_type: cardData.card.id_type,
+                visit_count: cardData.visit_count,
+                logged: cardData.logged,
+                eventTitle: cardData.scan?.events?.title,
+              });
+              setScanLoading(false);
+              if (scanEventId) {
+                fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+              }
+              return;
+            }
+            setScanError(cardData.error || "Codice non riconosciuto");
+            setScanLoading(false);
+            return;
+          } catch {
+            setScanError("Errore di connessione");
+            setScanLoading(false);
+            return;
+          }
+        }
         setScanError(d.error || "Prenotazione non trovata");
         setScanLoading(false);
         return;
@@ -407,7 +444,7 @@ export default function AdminPage() {
   }, [scanResult, scanEventId]);
 
   const startScanner = useCallback(async () => {
-    setScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
+    setScanResult(null); setCardScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
     lastScannedRef.current = null;
     if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
@@ -1852,7 +1889,7 @@ export default function AdminPage() {
             <div className="flex items-center gap-1 sm:gap-1.5">
               <ThemeToggle className="!w-8 !h-8 sm:!w-9 sm:!h-9" />
               <button
-                onClick={() => setShowScanChooser(true)}
+                onClick={() => setShowScanEventPicker(true)}
                 className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-white transition-all active:scale-95"
                 style={{ background: accentColor }}
                 title="Scansiona QR"
@@ -1973,7 +2010,7 @@ export default function AdminPage() {
             accentColor={accentColor}
             isLightTheme={isLightTheme}
             onNewEvent={() => { resetForm(); setShowForm(true); setActiveTab("events"); }}
-            onOpenScanner={() => setShowScanChooser(true)}
+            onOpenScanner={() => setShowScanEventPicker(true)}
             onGoToTab={(tab) => setActiveTab(tab)}
           />
         )}
@@ -4278,7 +4315,7 @@ export default function AdminPage() {
             )}
 
             {/* ─── Tessere (Cards) Tab ─── */}
-            {activeTab === "cards" && <CardsPanel autoOpenScannerTrigger={cardScanTrigger} />}
+            {activeTab === "cards" && <CardsPanel />}
 
             {/* ─── Settings Tab ─── */}
             {activeTab === "settings" && (
@@ -4468,45 +4505,7 @@ export default function AdminPage() {
         </div>
         </div>
 
-      {/* ─── Scan chooser: pick which kind of QR to scan ─── */}
-      {showScanChooser && (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-[#0a0a12] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-white font-bold text-lg">Cosa vuoi scansionare?</h2>
-              <button onClick={() => setShowScanChooser(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
-                <X size={18} />
-              </button>
-            </div>
-            <button
-              onClick={() => { setShowScanChooser(false); setShowScanEventPicker(true); }}
-              className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
-            >
-              <div className="w-11 h-11 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
-                <Ticket size={20} className="text-green-400" />
-              </div>
-              <div>
-                <p className="text-white font-semibold text-sm">Entrata con Prenotazione</p>
-                <p className="text-gray-500 text-xs">Biglietto di un evento — uso singolo</p>
-              </div>
-            </button>
-            <button
-              onClick={() => { setShowScanChooser(false); setActiveTab("cards"); setCardScanTrigger((t) => t + 1); }}
-              className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all text-left"
-            >
-              <div className="w-11 h-11 rounded-full bg-blue-500/15 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-                <CreditCard size={20} className="text-blue-400" />
-              </div>
-              <div>
-                <p className="text-white font-semibold text-sm">Tessera Cliente</p>
-                <p className="text-gray-500 text-xs">Tessera personale — riutilizzabile ad ogni evento</p>
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Scan event picker: pick WHICH event's tickets to control ─── */}
+      {/* ─── Scan event picker: pick WHICH event to control ─── */}
       {showScanEventPicker && (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#0a0a12] border border-white/10 rounded-2xl p-5 space-y-3 max-h-[80vh] flex flex-col">
@@ -4516,7 +4515,7 @@ export default function AdminPage() {
                 <X size={18} />
               </button>
             </div>
-            <p className="text-gray-500 text-xs flex-shrink-0">Solo i biglietti di questo evento verranno accettati.</p>
+            <p className="text-gray-500 text-xs flex-shrink-0">Un solo scanner per biglietti e tessere di questo evento.</p>
             <div className="overflow-y-auto space-y-2">
               {events.filter(e => !e.archived).length === 0 && (
                 <p className="text-gray-500 text-sm text-center py-4">Nessun evento attivo</p>
@@ -4575,7 +4574,7 @@ export default function AdminPage() {
           <div className="relative flex-1 overflow-hidden bg-black flex items-center justify-center">
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
             <canvas ref={canvasRef} className="hidden" />
-            {!scanSuccess && !scanError && !scanLoading && (
+            {!scanSuccess && !scanError && !scanLoading && !cardScanResult && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="relative w-64 h-64 sm:w-72 sm:h-72">
                   <div className="absolute top-0 left-0 w-10 h-10 border-green-400" style={{ borderTopWidth: 3, borderLeftWidth: 3, borderTopStyle: "solid", borderLeftStyle: "solid", borderRadius: "8px 0 0 0" }} />
@@ -4689,6 +4688,36 @@ export default function AdminPage() {
                   )}
                   <div className="flex gap-3">
                     <button onClick={() => { setScanSuccess(false); setScanResult(null); setScanError(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
+                    <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Tessera cliente scansionata — già registrata, nessuna conferma da premere */}
+            {cardScanResult && !scanLoading && (
+              <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-6">
+                <div className="max-w-xs w-full text-center space-y-3">
+                  <div className="relative w-32 h-32 mx-auto">
+                    {cardScanResult.photo_url ? (
+                      <Image src={cardScanResult.photo_url} alt="" width={128} height={128} className="w-32 h-32 rounded-full object-cover border-4 border-white/20" />
+                    ) : (
+                      <div className={`w-32 h-32 rounded-full flex items-center justify-center ${cardScanResult.logged ? "bg-green-500/15 border-4 border-green-500/40" : "bg-yellow-500/15 border-4 border-yellow-500/40"}`}>
+                        <IdCard size={48} className={cardScanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                      </div>
+                    )}
+                  </div>
+                  <h1 className="text-xl font-bold text-white">{cardScanResult.full_name}</h1>
+                  {decodeIdType(cardScanResult.id_type).label !== "—" && (
+                    <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase bg-blue-500/15 text-blue-300 border border-blue-500/25">
+                      {decodeIdType(cardScanResult.id_type).label}
+                    </span>
+                  )}
+                  <p className={`text-sm font-medium ${cardScanResult.logged ? "text-green-400" : "text-yellow-400"}`}>
+                    {cardScanResult.logged ? "✅ Tessera — Ingresso registrato!" : "⚠️ Tessera già entrata in questo evento"}
+                  </p>
+                  <p className="text-gray-400 text-sm">Ingressi totali: <span className="text-white font-bold">{cardScanResult.visit_count}</span></p>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => { setCardScanResult(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
                     <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
                   </div>
                 </div>

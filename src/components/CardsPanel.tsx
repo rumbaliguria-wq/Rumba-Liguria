@@ -127,7 +127,7 @@ const EMPTY_FORM = {
 // backend la guarda con event_id = null, como un "evento" genérico propio.
 const PRIVATE_EVENT = "__private__";
 
-export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScannerTrigger?: number }) {
+export default function CardsPanel() {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -918,11 +918,6 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     return () => stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showScanner, scanEventId]);
-
-  // Opens the scanner when the unified "Scan" chooser in the admin header routes here.
-  useEffect(() => {
-    if (autoOpenScannerTrigger) setShowScanner(true);
-  }, [autoOpenScannerTrigger]);
 
   // ─── Derived ───
 
