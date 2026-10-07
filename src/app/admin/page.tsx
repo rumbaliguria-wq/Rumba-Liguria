@@ -197,6 +197,8 @@ export default function AdminPage() {
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
   const [statsTessereCount, setStatsTessereCount] = useState<number | null>(null);
+  const [tessereEntriesOpen, setTessereEntriesOpen] = useState(false);
+  const [tessereEntries, setTessereEntries] = useState<{ full_name: string; city: string | null; id_type: string | null; scanned_at: string }[] | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -3386,6 +3388,19 @@ export default function AdminPage() {
                       </div>
                         <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
                           <button
+                            onClick={() => {
+                              setStatsEvent(event);
+                              setStatsTessereCount(null);
+                              setTessereEntriesOpen(false);
+                              setTessereEntries(null);
+                              fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                            }}
+                            title="Statistiche evento"
+                            className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
+                          >
+                            <BarChart2 size={15} />
+                          </button>
+                          <button
                             onClick={() => handleNotifyEvent(event.id, event.title)}
                             disabled={notifying === event.id}
                             title="Invia email a tutti gli utenti"
@@ -3461,6 +3476,8 @@ export default function AdminPage() {
                               onClick={() => {
                                 setStatsEvent(event);
                                 setStatsTessereCount(null);
+                                setTessereEntriesOpen(false);
+                                setTessereEntries(null);
                                 fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
                               }}
                               title="Statistiche evento"
@@ -4760,16 +4777,16 @@ export default function AdminPage() {
         : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
 
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
-                {statsDrilldown ? (
-                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                {statsDrilldown || tessereEntriesOpen ? (
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
-                <h3 className="font-bold text-white text-base">{statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
+                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
               <div className="flex items-center gap-2">
                 {statsDrilldown && filteredDrilldownList.length > 0 && (
@@ -4786,11 +4803,46 @@ export default function AdminPage() {
                     <Copy size={12} /> Copia nomi
                   </button>
                 )}
-                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                {tessereEntriesOpen && tessereEntries && tessereEntries.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const names = tessereEntries.map(e => e.full_name).filter(Boolean);
+                      if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                      navigator.clipboard.writeText(names.join("\n"))
+                        .then(() => toast.success(`${names.length} nomi copiati!`))
+                        .catch(() => toast.error("Errore durante la copia"));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                  >
+                    <Copy size={12} /> Copia nomi
+                  </button>
+                )}
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
               </div>
             </div>
 
-            {statsDrilldown ? (
+            {tessereEntriesOpen ? (
+              /* ── Tessera entries list ── */
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                {!tessereEntries ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Caricamento...</p>
+                ) : tessereEntries.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Nessuna entrata con tessera</p>
+                ) : tessereEntries.map((e, i) => (
+                  <div key={i} className="p-3 rounded-xl border bg-[#0a0a12] border-pink-500/15">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-white truncate">{e.full_name}</p>
+                        {e.city && <p className="text-[11px] text-gray-400 truncate">{e.city}</p>}
+                      </div>
+                      <span className="flex-shrink-0 text-[11px] text-gray-500 mt-0.5">
+                        {new Date(e.scanned_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : statsDrilldown ? (
               /* ── Detail list ── */
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
                 {fullDrilldownList.length > 0 && (
@@ -4870,10 +4922,24 @@ export default function AdminPage() {
                   </div>
                 </div>
                 {statsTessereCount !== null && statsTessereCount > 0 && (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                  <button
+                    onClick={() => {
+                      setTessereEntriesOpen(true);
+                      if (!tessereEntries) {
+                        fetch(`/api/events/${statsEvent.id}/card-entries`)
+                          .then((r) => r.json())
+                          .then((d) => setTessereEntries(Array.isArray(d) ? d : []))
+                          .catch(() => setTessereEntries([]));
+                      }
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-pink-400" /> Entrate con tessera</span>
-                    <span className="text-sm font-bold text-pink-400">{statsTessereCount}</span>
-                  </div>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-pink-400">{statsTessereCount}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
                 )}
                 {fillRate !== null && (
                   <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
