@@ -529,6 +529,17 @@ export default function AdminPage() {
     }
   }, [handleValidateCode]);
 
+  // Arranca la cámara recién cuando scanEventId YA se actualizó y se vio
+  // reflejado en un nuevo render (no en el mismo clic que lo setea) — si no,
+  // handleValidateCode queda atado al scanEventId viejo (null) para toda esa
+  // sesión de escaneo: el encabezado muestra bien el evento elegido, pero el
+  // escaneo de tessera se registra como "Evento Privato" por error.
+  useEffect(() => {
+    if (showScanner && scanEventId) startScanner();
+    return () => stopScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScanner, scanEventId]);
+
   const fetchEvents = useCallback(async () => {
     const res = await fetch("/api/admin/events");
     const data = await res.json();
@@ -4527,7 +4538,6 @@ export default function AdminPage() {
                     setScanEventId(e.id);
                     setShowScanEventPicker(false);
                     setShowScanner(true);
-                    startScanner();
                     fetch(`/api/events/${e.id}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
