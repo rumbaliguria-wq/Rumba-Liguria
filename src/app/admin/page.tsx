@@ -86,11 +86,27 @@ async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanv
   return canvas;
 }
 
+// QR liso en buena resolución — se usa para el Codice Gruppo, donde antes
+// solo había un QR chiquito en pantalla que había que fotografiar (y perdía
+// calidad al reenviarse hasta volverse ilegible).
+async function drawPlainQRCanvas(url: string): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement("canvas");
+  await QRCode.toCanvas(canvas, url, { width: 500, margin: 2, errorCorrectionLevel: "H" });
+  return canvas;
+}
+
 // En el celular intenta abrir primero el menú nativo para compartir (donde
 // aparece WhatsApp si está instalado); si no se puede o el navegador lo
 // rechaza, descarga la imagen directamente. Devuelve true si se compartió.
 async function shareOrDownloadCanvas(canvas: HTMLCanvasElement, filename: string, shareTitle: string): Promise<boolean> {
-  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  // canvas.toBlob no debería tardar, pero si por lo que sea nunca llama al
+  // callback (visto en algún entorno raro), no queremos que el botón se
+  // quede "colgado" sin hacer nada — a los 3s se pasa directo a la descarga
+  // por toDataURL, que es sincrónica.
+  const blob: Blob | null = await Promise.race([
+    new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png")),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+  ]);
   if (blob) {
     const file = new File([blob], filename, { type: "image/png" });
     const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files: [file] });
@@ -375,19 +391,39 @@ export default function AdminPage() {
         setScanLoading(false);
         return;
       }
+      // Codice Gruppo: se registra al toque, sin pedir confirmación — con
+      // 100/200 personas en la puerta no hay tiempo de revisar una por una
+      // como con una prenotazione normal.
       if (reservation.is_group) {
-        setScanResult({
-          name: reservation.group.label,
-          email: "",
-          event: reservation.events?.title || "Evento",
-          code,
-          rawCode: code,
-          isGroup: true,
-          groupLabel: reservation.group.label,
-          groupCount: reservation.group.entries_count,
-          groupMax: reservation.group.max_entries,
-        });
-        setScanLoading(false);
+        try {
+          const patchRes = await fetch(`/api/reservations/${code}`, { method: "PATCH" });
+          const d = await patchRes.json().catch(() => ({}));
+          if (!patchRes.ok) {
+            setScanError(d.error || "Errore validazione");
+            setScanLoading(false);
+            return;
+          }
+          setScanResult({
+            name: reservation.group.label,
+            email: "",
+            event: reservation.events?.title || "Evento",
+            code,
+            rawCode: code,
+            isGroup: true,
+            groupLabel: reservation.group.label,
+            groupCount: d.group?.entries_count ?? reservation.group.entries_count,
+            groupMax: reservation.group.max_entries,
+          });
+          setScanSuccess(true);
+          setScanLoading(false);
+          fetchReservationsRef.current?.();
+          if (scanEventId) {
+            fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+          }
+        } catch {
+          setScanError("Errore di connessione");
+          setScanLoading(false);
+        }
         return;
       }
       if (reservation.status === "used") { setScanError("Già utilizzato"); setScanLoading(false); return; }
@@ -2816,15 +2852,24 @@ export default function AdminPage() {
                             <div className="p-1.5 bg-white rounded-lg flex-shrink-0">
                               <QRCodeSVG value={url} size={70} />
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[9px] text-gray-500 mb-1">QR da condividere con il gruppo:</p>
-                              <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
-                                <span className="text-[10px] text-gray-400 flex-1 truncate">{url}</span>
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <p className="text-[9px] text-gray-500">QR da condividere con il gruppo:</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={async () => {
+                                    const canvas = await drawPlainQRCanvas(url);
+                                    await shareOrDownloadCanvas(canvas, `gruppo-${pass.code}.png`, `QR Gruppo ${pass.label || ""}`);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-pink-500/20 text-pink-400 text-[11px] font-semibold hover:bg-pink-500/30 flex items-center gap-1.5 flex-shrink-0"
+                                >
+                                  <Download size={12} /> Scarica QR
+                                </button>
                                 <button
                                   onClick={() => { navigator.clipboard.writeText(url).then(() => toast.success("Link copiato!")); }}
-                                  className="px-2 py-1 rounded bg-pink-500/20 text-pink-400 text-[10px] font-medium hover:bg-pink-500/30 flex items-center gap-1 flex-shrink-0"
+                                  title="Copia link"
+                                  className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white flex-shrink-0"
                                 >
-                                  <Copy size={10} /> Copia
+                                  <Copy size={12} />
                                 </button>
                               </div>
                             </div>
@@ -4765,6 +4810,7 @@ export default function AdminPage() {
       const total = evRes.length;
       const active = evRes.filter(r => r.status === "active").length;
       const entered = evRes.filter(r => r.status === "used").length;
+      const groupEntriesCount = evRes.filter(r => r.user_email === "__group__").length;
       const cancelled = evRes.filter(r => r.status === "cancelled").length;
       const totalGuests = evRes.reduce((s, r) => s + (r.guest_count || 1), 0);
       const enteredGuests = evRes.filter(r => r.status === "used").reduce((s, r) => s + (r.guest_count || 1), 0);
@@ -4979,6 +5025,12 @@ export default function AdminPage() {
                       <ChevronRight size={12} className="text-gray-600" />
                     </span>
                   </button>
+                )}
+                {groupEntriesCount > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><Users size={13} className="text-pink-400" /> Entrate con Codice Gruppo</span>
+                    <span className="text-sm font-bold text-pink-400">{groupEntriesCount}</span>
+                  </div>
                 )}
                 {fillRate !== null && (
                   <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
