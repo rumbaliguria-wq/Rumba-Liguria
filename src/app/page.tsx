@@ -50,7 +50,11 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
-import { unitPriceCents, formatEUR, lineTotalCents } from "@/lib/pricing";
+import { unitPriceCents, formatEUR, lineTotalCents, type PromoConfig } from "@/lib/pricing";
+
+function eventPromo(event: { promo_group?: number; promo_free?: number }): PromoConfig | null {
+  return event.promo_group && event.promo_free ? { group: event.promo_group, free: event.promo_free } : null;
+}
 
 interface CartLine {
   eventId: string;
@@ -59,7 +63,7 @@ interface CartLine {
   count: number;
   unitCents: number;
   maxPerPerson?: number | null;
-  promo3x2?: boolean;
+  promo?: PromoConfig | null;
 }
 
 interface GalleryItem {
@@ -110,7 +114,8 @@ interface Event {
   min_age?: number;
   sale_start?: string;
   sale_end?: string;
-  promo3x2?: boolean;
+  promo_group?: number;
+  promo_free?: number;
   ticket_types?: { name: string; color: string; price?: number }[];
   created_at: string;
   reservation_total: number;
@@ -657,7 +662,7 @@ export default function Home() {
       count: reservation.count,
       unitCents: unitPriceCents(event.price, event.ticket_types, reservation.ticketType),
       maxPerPerson: event.max_per_person,
-      promo3x2: event.promo3x2 || false,
+      promo: eventPromo(event),
     };
     // Una sola línea por evento: el servidor no permite reservar dos veces el mismo evento.
     setCart((prev) => [...prev.filter((l) => l.eventId !== event.id), line]);
@@ -675,7 +680,7 @@ export default function Home() {
     }));
   };
 
-  const cartTotalCents = cart.reduce((s, l) => s + lineTotalCents(l.unitCents, l.count, !!l.promo3x2), 0);
+  const cartTotalCents = cart.reduce((s, l) => s + lineTotalCents(l.unitCents, l.count, l.promo), 0);
   const cartGuests = cart.reduce((s, l) => s + l.count, 0);
 
   const checkout = async () => {
@@ -1470,8 +1475,8 @@ export default function Home() {
                 {reservation && reservation.eventId === detailEvent.id && (
                   <div className="overflow-hidden animate-fade-in">
                     <div className="mt-4 p-4 rounded-xl" style={{ background: `${a}0d`, border: `1px solid ${a30}` }}>
-                      {detailEvent.promo3x2 && (
-                        <p className="text-xs font-bold text-pink-400 mb-2">🎁 Promozione 3x2 — compra 2, il 3° è gratis!</p>
+                      {detailEvent.promo_group && detailEvent.promo_free && (
+                        <p className="text-xs font-bold text-pink-400 mb-2">🎁 Promozione: ogni {detailEvent.promo_group} biglietti, {detailEvent.promo_free} {detailEvent.promo_free === 1 ? "è gratis" : "sono gratis"}!</p>
                       )}
                       <p className="text-sm text-gray-300 mb-3">{t(lang, "events.howMany")}</p>
                       {/* Ticket Type Selector */}
@@ -1548,7 +1553,7 @@ export default function Home() {
                                 style={{ background: a }}
                               >
                                 <ShoppingCart size={16} />
-                                {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, !!detailEvent.promo3x2))}
+                                {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, eventPromo(detailEvent)))}
                               </button>
                             );
                           }
@@ -2087,7 +2092,7 @@ export default function Home() {
                             {l.ticketType && <p className="text-xs text-gray-400">{l.ticketType}</p>}
                             <p className="text-[11px] text-gray-500 mt-0.5">
                               {l.unitCents > 0 ? `${formatEUR(l.unitCents)} ${t(lang, "cart.perPerson")}` : t(lang, "events.free")}
-                              {l.promo3x2 && l.unitCents > 0 && <span className="text-pink-400 font-medium"> · 🎁 3x2</span>}
+                              {l.promo && l.unitCents > 0 && <span className="text-pink-400 font-medium"> · 🎁 {l.promo.group}x{l.promo.group - l.promo.free}</span>}
                             </p>
                           </div>
                           <button
@@ -2104,7 +2109,7 @@ export default function Home() {
                             <span className="text-base font-bold w-6 text-center" style={{ color: a }}>{l.count}</span>
                             <button onClick={() => changeCartCount(l.eventId, 1)} disabled={l.count >= (l.maxPerPerson ? Math.min(l.maxPerPerson, 20) : 20)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-white disabled:opacity-30">+</button>
                           </div>
-                          <span className="text-sm font-bold text-white">{formatEUR(lineTotalCents(l.unitCents, l.count, !!l.promo3x2))}</span>
+                          <span className="text-sm font-bold text-white">{formatEUR(lineTotalCents(l.unitCents, l.count, l.promo))}</span>
                         </div>
                       </div>
                     ))}

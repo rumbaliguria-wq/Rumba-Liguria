@@ -54,9 +54,9 @@ export async function POST(req: NextRequest) {
           quantity: 1,
           price_data: {
             currency: "eur",
-            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo3x2),
+            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo),
             product_data: {
-              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo3x2 ? " (promo 3x2)" : ""}`,
+              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo ? ` (promo ${l.promo.group}x${l.promo.group - l.promo.free})` : ""}`,
             },
           },
         })),

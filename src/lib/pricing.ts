@@ -38,12 +38,24 @@ export function getUnitPriceCents(
   return unitPriceCents(event.price, types, ticketType);
 }
 
-// Promoción "3x2" opcional por evento: cada 3 entradas, 1 sale gratis
-// (se paga 2 de cada 3), pero se reciben todas las que se pidieron — cada
-// una con su propio QR. Con promo activa: 1→1, 2→2, 3→2, 4→3, 6→4 pagas.
-export function lineTotalCents(unitCents: number, count: number, promo3x2: boolean): number {
+// Promoción opcional por evento, configurable por el admin: "cada X
+// entradas, Y salen gratis" (ej. cada 3, 1 gratis = el clásico 3x2; cada 2,
+// 1 gratis = compra 1 lleva 2). Se reciben todas las entradas que se
+// pidieron — cada una con su propio QR — pero se cobran menos.
+export interface PromoConfig {
+  group: number; // cada cuántas entradas
+  free: number;  // cuántas de ese grupo son gratis
+}
+
+export function isValidPromo(promo: PromoConfig | null | undefined): promo is PromoConfig {
+  return !!promo && Number.isInteger(promo.group) && Number.isInteger(promo.free)
+    && promo.group >= 2 && promo.free >= 1 && promo.free < promo.group;
+}
+
+export function lineTotalCents(unitCents: number, count: number, promo: PromoConfig | null | undefined): number {
   if (unitCents <= 0 || count <= 0) return 0;
-  const payableCount = promo3x2 ? count - Math.floor(count / 3) : count;
+  if (!isValidPromo(promo)) return unitCents * count;
+  const payableCount = count - Math.floor(count / promo.group) * promo.free;
   return unitCents * payableCount;
 }
 

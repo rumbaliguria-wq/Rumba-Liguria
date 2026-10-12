@@ -203,7 +203,9 @@ export default function AdminPage() {
       sale_start: "",
       sale_end: "",
       archive_at: "",
-      promo3x2: false,
+      promo_enabled: false,
+      promo_group: "3",
+      promo_free: "1",
     });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1019,6 +1021,8 @@ export default function AdminPage() {
       sale_start: formData.sale_start ? new Date(formData.sale_start).toISOString() : null,
       sale_end: formData.sale_end ? new Date(formData.sale_end).toISOString() : null,
       archive_at: formData.archive_at ? new Date(formData.archive_at).toISOString() : null,
+      promo_group: formData.promo_enabled ? formData.promo_group : null,
+      promo_free: formData.promo_enabled ? formData.promo_free : null,
       notifyUsers: notifyOnPublish,
     };
 
@@ -1128,7 +1132,9 @@ export default function AdminPage() {
         const z = d.getTimezoneOffset() * 60000;
         return new Date(d.getTime() - z).toISOString().slice(0, 16);
       })() : "",
-      promo3x2: event.promo3x2 || false,
+      promo_enabled: !!(event.promo_group && event.promo_free),
+      promo_group: event.promo_group ? String(event.promo_group) : "3",
+      promo_free: event.promo_free ? String(event.promo_free) : "1",
       });
       setFormTicketTypes(event.ticket_types || []);
       setPlaceQuery(event.maps_url || "");
@@ -1834,7 +1840,9 @@ export default function AdminPage() {
         sale_start: "",
         sale_end: "",
         archive_at: "",
-        promo3x2: false,
+        promo_enabled: false,
+        promo_group: "3",
+        promo_free: "1",
         });
       setPlaceQuery("");
       setPlaceSuggestions([]);
@@ -3357,23 +3365,49 @@ export default function AdminPage() {
                         </div>
                         <p className="text-[10px] text-gray-500 mt-1">Se scrivi solo un importo (es. 10 o €10) l&apos;evento si paga online con carta. Con testo libero (es. &quot;Ingresso libero&quot;) resta gratis. Il prezzo di un tipo di biglietto ha la precedenza.</p>
                         {parsePriceCents(formData.price) > 0 && (
-                          <div
-                            onClick={() => setFormData((p) => ({ ...p, promo3x2: !p.promo3x2 }))}
-                            className={`mt-2 flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all ${
-                              formData.promo3x2
-                                ? "bg-pink-500/10 border-pink-500/30"
-                                : "bg-white/5 border-white/10 hover:border-white/20"
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
-                              formData.promo3x2 ? "bg-pink-500 border-pink-500" : "border-gray-600"
-                            }`}>
-                              {formData.promo3x2 && <span className="text-white text-[10px]">✓</span>}
+                          <div className="mt-2 rounded-xl border border-white/10 overflow-hidden">
+                            <div
+                              onClick={() => setFormData((p) => ({ ...p, promo_enabled: !p.promo_enabled }))}
+                              className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${
+                                formData.promo_enabled ? "bg-pink-500/10" : "bg-white/5 hover:bg-white/10"
+                              }`}
+                            >
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
+                                formData.promo_enabled ? "bg-pink-500 border-pink-500" : "border-gray-600"
+                              }`}>
+                                {formData.promo_enabled && <span className="text-white text-[10px]">✓</span>}
+                              </div>
+                              <p className="text-sm text-white font-medium">🎁 Promozione</p>
                             </div>
-                            <div>
-                              <p className="text-sm text-white font-medium">🎁 Promozione 3x2</p>
-                              <p className="text-[10px] text-gray-500">Ogni 3 biglietti, 1 è gratis: 2 → paga 2, 3 → paga 2, 4 → paga 3, 6 → paga 4.</p>
-                            </div>
+                            {formData.promo_enabled && (
+                              <div className="p-3 border-t border-white/10 bg-pink-500/5 flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-gray-400">Ogni</span>
+                                <input
+                                  type="number"
+                                  min="2"
+                                  value={formData.promo_group}
+                                  onChange={(e) => setFormData((p) => ({ ...p, promo_group: e.target.value }))}
+                                  className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
+                                />
+                                <span className="text-xs text-gray-400">biglietti,</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={formData.promo_free}
+                                  onChange={(e) => setFormData((p) => ({ ...p, promo_free: e.target.value }))}
+                                  className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
+                                />
+                                <span className="text-xs text-gray-400">gratis</span>
+                                {(() => {
+                                  const g = parseInt(formData.promo_group) || 0;
+                                  const f = parseInt(formData.promo_free) || 0;
+                                  if (g < 2 || f < 1 || f >= g) {
+                                    return <p className="w-full text-[10px] text-red-400 mt-1">I numeri non sono validi (es. 3 e 1) — la promo non si applicherà.</p>;
+                                  }
+                                  return <p className="w-full text-[10px] text-gray-500 mt-1">Es.: {g} → paga {g - f}, {g * 2} → paga {(g - f) * 2}.</p>;
+                                })()}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

@@ -3,7 +3,7 @@ import { getServiceClient } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 import { decodeTicketTypes } from "@/lib/ticketTypes";
-import { getUnitPriceCents, lineTotalCents } from "@/lib/pricing";
+import { getUnitPriceCents, lineTotalCents, type PromoConfig } from "@/lib/pricing";
 import { decodeSaleConfig } from "@/lib/saleConfig";
 
 export interface CartItem {
@@ -16,7 +16,7 @@ export interface CartItem {
 export interface PricedItem extends CartItem {
   unit_cents: number;
   event_title: string;
-  promo3x2: boolean;
+  promo: PromoConfig | null;
 }
 
 export interface TicketResult {
@@ -81,7 +81,10 @@ export async function priceCart(
     const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email, unitCents);
     if (bookingError) return { ok: false, error: `${event.title}: ${bookingError}` };
 
-    const promo3x2 = decodeSaleConfig(event.details || "").promo3x2;
+    const eventConfig = decodeSaleConfig(event.details || "");
+    const promo: PromoConfig | null = eventConfig.promo_group && eventConfig.promo_free
+      ? { group: eventConfig.promo_group, free: eventConfig.promo_free }
+      : null;
     lines.push({
       event_id: event.id,
       ticket_type: raw.ticket_type || undefined,
@@ -89,11 +92,11 @@ export async function priceCart(
       referral: raw.referral || undefined,
       unit_cents: unitCents,
       event_title: event.title,
-      promo3x2,
+      promo,
     });
   }
 
-  const totalCents = lines.reduce((s, l) => s + lineTotalCents(l.unit_cents, l.guest_count, l.promo3x2), 0);
+  const totalCents = lines.reduce((s, l) => s + lineTotalCents(l.unit_cents, l.guest_count, l.promo), 0);
   return { ok: true, lines, totalCents };
 }
 
@@ -141,7 +144,7 @@ export async function fulfillItems(
         event_id: line.event_id,
         event_title: line.event_title,
         reason: err instanceof Error ? err.message : "Errore",
-        refunded_cents: lineTotalCents(line.unit_cents, line.guest_count, line.promo3x2),
+        refunded_cents: lineTotalCents(line.unit_cents, line.guest_count, line.promo),
       });
     }
   }
