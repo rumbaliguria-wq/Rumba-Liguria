@@ -75,7 +75,8 @@ export async function priceCart(
       return { ok: false, error: `Scegli il tipo di biglietto per "${event.title}".` };
     }
 
-    const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email);
+    const unitCents = getUnitPriceCents(event, raw.ticket_type);
+    const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email, unitCents);
     if (bookingError) return { ok: false, error: `${event.title}: ${bookingError}` };
 
     lines.push({
@@ -83,7 +84,7 @@ export async function priceCart(
       ticket_type: raw.ticket_type || undefined,
       guest_count,
       referral: raw.referral || undefined,
-      unit_cents: getUnitPriceCents(event, raw.ticket_type),
+      unit_cents: unitCents,
       event_title: event.title,
     });
   }
@@ -111,7 +112,7 @@ export async function fulfillItems(
         .select("title, max_tickets, max_per_person, event_date_iso, details")
         .eq("id", line.event_id)
         .single();
-      const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email);
+      const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents);
       if (bookingError) throw new Error(bookingError);
 
       const rows = await createReservationsAndNotify({

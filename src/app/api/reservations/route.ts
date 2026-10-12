@@ -31,11 +31,12 @@ export async function POST(req: NextRequest) {
   ]);
 
   // Los eventos/tipos con precio solo se compran por el carrito (Stripe).
-  if (event && getUnitPriceCents(event, ticket_type) > 0) {
+  const unitCents = event ? getUnitPriceCents(event, ticket_type) : 0;
+  if (unitCents > 0) {
     return NextResponse.json({ error: "Questo biglietto è a pagamento: aggiungilo al carrello." }, { status: 402 });
   }
 
-  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email);
+  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email, unitCents);
   if (bookingError) {
     return NextResponse.json({ error: bookingError }, { status: 400 });
   }

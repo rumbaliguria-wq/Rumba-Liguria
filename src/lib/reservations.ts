@@ -28,7 +28,8 @@ export async function validateBookingRules(
   event: EventForValidation,
   guest_count: number,
   event_id: string,
-  user_email?: string
+  user_email?: string,
+  unitCents = 0
 ): Promise<string | null> {
   const eventDateIso = event?.event_date_iso;
 
@@ -62,6 +63,12 @@ export async function validateBookingRules(
   }
   if (sale_end && Date.now() > new Date(sale_end).getTime()) {
     return "Le prenotazioni per questo evento sono chiuse.";
+  }
+
+  // Lo gratis es siempre de a una persona por reserva, sin importar el
+  // "Posti max per persona" del evento (ese límite es solo para lo pagado).
+  if (unitCents === 0 && guest_count > 1) {
+    return "Le prenotazioni gratuite sono per una sola persona.";
   }
 
   if (event?.max_per_person && guest_count > event.max_per_person) {

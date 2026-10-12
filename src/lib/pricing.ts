@@ -11,18 +11,21 @@ export function parsePriceCents(raw: string | null | undefined): number {
   return Number.isFinite(cents) && cents > 0 ? cents : 0;
 }
 
-// Precio por persona en céntimos: primero el del tipo de entrada elegido,
-// si no el precio general del evento. Misma regla en servidor y navegador.
+// Precio por persona en céntimos. Misma regla en servidor y navegador.
+//
+// Si el evento tiene tipos de entrada, cada uno vale por SU propio precio,
+// sin heredar el Prezzo general del evento — así se pueden mezclar tipos
+// gratis y pagos en el mismo evento (p.ej. "General" sin precio = gratis,
+// "VIP" con precio = pago), tal como ya promete el texto de ayuda del panel.
+// Sin tipos de entrada, manda el Prezzo general del evento, como siempre.
 export function unitPriceCents(
   eventPrice: string | null | undefined,
   types: TicketType[] | undefined,
   ticketType?: string | null
 ): number {
-  if (ticketType && types) {
+  if (types && types.length > 0) {
     const tt = types.find((t) => t.name === ticketType);
-    if (tt && typeof tt.price === "number" && tt.price > 0) {
-      return Math.round(tt.price * 100);
-    }
+    return tt && typeof tt.price === "number" && tt.price > 0 ? Math.round(tt.price * 100) : 0;
   }
   return parsePriceCents(eventPrice);
 }

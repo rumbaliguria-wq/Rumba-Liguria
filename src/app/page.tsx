@@ -1476,7 +1476,11 @@ export default function Home() {
                             {detailEvent.ticket_types.map((tt) => (
                               <button
                                 key={tt.name}
-                                onClick={() => setReservation((prev) => prev ? { ...prev, ticketType: tt.name } : null)}
+                                onClick={() => setReservation((prev) => {
+                                  if (!prev) return null;
+                                  const isFree = unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name) === 0;
+                                  return { ...prev, ticketType: tt.name, count: isFree ? 1 : prev.count };
+                                })}
                                 className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
                                   reservation.ticketType === tt.name
                                     ? "text-white border-white/30"
@@ -1496,8 +1500,10 @@ export default function Home() {
                         </div>
                       )}
                       {(() => {
+                        const isFreeTicket = unitPriceCents(detailEvent.price, detailEvent.ticket_types, reservation.ticketType) === 0;
                         const spotsLeft = detailEvent.max_tickets != null ? detailEvent.max_tickets - (detailEvent.tickets_sold ?? detailEvent.reservation_total) : 999;
-                        const maxAllowed = Math.max(1, detailEvent.max_per_person ? Math.min(spotsLeft, detailEvent.max_per_person) : spotsLeft);
+                        // Lo gratis es siempre de a una persona — el "Posti max per persona" solo aplica a lo pagado.
+                        const maxAllowed = isFreeTicket ? 1 : Math.max(1, detailEvent.max_per_person ? Math.min(spotsLeft, detailEvent.max_per_person) : spotsLeft);
                         return (
                           <div className="flex items-center gap-3 mb-4 justify-center">
                             <button
