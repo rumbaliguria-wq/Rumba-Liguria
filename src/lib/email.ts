@@ -124,6 +124,7 @@ export function qrTicketHtml(opts: {
   userEmail: string;
   guestCount: number;
   tickets: { code: string; verifyUrl: string; qrImageUrl: string }[];
+  invoiceUrl?: string | null;
 }) {
   const ticketsHtml = opts.tickets.map((ticket, index) => `
     <div style="background:#0a0a12;border:1px solid #1e3a5f;border-radius:16px;padding:24px;text-align:center;margin-bottom:24px;">
@@ -157,6 +158,12 @@ export function qrTicketHtml(opts: {
     </div>
     
     ${ticketsHtml}
+
+    ${opts.invoiceUrl ? `
+    <a href="${opts.invoiceUrl}" style="display:block;background:#1f2937;border:1px solid #374151;color:#e5e7eb;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;margin-bottom:16px;">
+      📄 Scarica la fattura
+    </a>
+    ` : ""}
 
     <p style="text-align:center;color:#4b5563;font-size:12px;margin-top:20px;">
       Conserva questa email — ogni QR è valido per una singola entrata.

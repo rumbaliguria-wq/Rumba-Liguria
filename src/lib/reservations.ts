@@ -109,6 +109,7 @@ export async function createReservationsAndNotify({
   cashPriceEUR,
   skipEmail,
   origin,
+  invoiceUrl,
 }: {
   supabase: SupabaseClient;
   event_id: string;
@@ -126,6 +127,8 @@ export async function createReservationsAndNotify({
   // cliente (venta en efectivo sin cuenta).
   skipEmail?: boolean;
   origin: string;
+  // Link de la factura de Stripe — solo existe en compras pagadas online.
+  invoiceUrl?: string | null;
 }) {
   const ticketsToCreate = [];
   const codes: string[] = [];
@@ -184,6 +187,7 @@ export async function createReservationsAndNotify({
         userEmail: user_email,
         guestCount: guest_count,
         tickets,
+        invoiceUrl,
       }),
     }).catch(() => {/* ignore email errors */});
   }

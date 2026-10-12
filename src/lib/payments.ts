@@ -107,7 +107,8 @@ export async function fulfillItems(
   supabase: SupabaseClient,
   email: string,
   items: PricedItem[],
-  origin: string
+  origin: string,
+  invoiceUrl?: string | null
 ): Promise<PaymentResult> {
   const { data: user } = await supabase.from("users").select("phone").eq("email", email).single();
   const result: PaymentResult = { tickets: [], rejected: [] };
@@ -132,6 +133,7 @@ export async function fulfillItems(
         ticket_type: line.ticket_type,
         referral: line.referral,
         origin,
+        invoiceUrl,
       });
       result.tickets.push({
         event_id: line.event_id,
@@ -161,8 +163,9 @@ export type FulfillOutcome =
 // entradas, el otro recibe el resultado ya guardado.
 export async function fulfillPaidSession(sessionId: string, origin: string): Promise<FulfillOutcome> {
   const stripe = getStripe();
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["invoice"] });
   if (session.payment_status !== "paid") return { status: "unpaid" };
+  const invoice = session.invoice && typeof session.invoice !== "string" ? session.invoice : null;
 
   const supabase = getServiceClient();
   const { data: claimed } = await supabase
@@ -183,7 +186,7 @@ export async function fulfillPaidSession(sessionId: string, origin: string): Pro
     return { status: existing.status, result: existing.result } as FulfillOutcome;
   }
 
-  const result = await fulfillItems(supabase, claimed.user_email, claimed.items as PricedItem[], origin);
+  const result = await fulfillItems(supabase, claimed.user_email, claimed.items as PricedItem[], origin, invoice?.hosted_invoice_url);
 
   const refundCents = result.rejected.reduce((s, r) => s + r.refunded_cents, 0);
   let status: "paid" | "refunded" | "partially_refunded" = "paid";
