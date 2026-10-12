@@ -33,10 +33,12 @@ export async function validateBookingRules(
 ): Promise<string | null> {
   const eventDateIso = event?.event_date_iso;
 
-  // Un mismo email no puede reservar dos veces para el mismo evento — no
-  // importa si la primera vez fue por la página normal o por un link de
-  // RR.PP. distinto. Si esa reserva anterior fue cancelada, no cuenta.
-  if (user_email) {
+  // Un mismo email no puede reservar dos veces GRATIS para el mismo evento
+  // (no importa si la primera vez fue por la página normal o por un link de
+  // RR.PP. distinto — si esa reserva anterior fue cancelada, no cuenta). Lo
+  // pagado no tiene este límite: cada compra es un pago real, así que puede
+  // comprar varias veces (para amigos, etc.).
+  if (user_email && unitCents === 0) {
     const { data: already } = await supabase
       .from("reservations")
       .select("id")
