@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
           },
         })),
       metadata: { payment_id: payment.id },
+      // Genera un recibo/factura en PDF por cada pago, con los datos del
+      // negocio que se configuren en Stripe (Ajustes → Facturas).
+      invoice_creation: { enabled: true },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/?payment=cancelled`,
     });
