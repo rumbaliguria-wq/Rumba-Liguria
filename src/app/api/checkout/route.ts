@@ -61,9 +61,19 @@ export async function POST(req: NextRequest) {
           },
         })),
       metadata: { payment_id: payment.id },
-      // Genera un recibo/factura en PDF por cada pago, con los datos del
-      // negocio que se configuren en Stripe (Ajustes → Facturas).
-      invoice_creation: { enabled: true },
+      // Genera un recibo/factura en PDF por cada pago. Las plantillas que se
+      // arman en el Dashboard de Stripe no se aplican acá (son solo para
+      // facturas creadas a mano ahí), así que los datos fiscales van directo
+      // en el código.
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          custom_fields: [
+            { name: "Partita IVA", value: "IT03098620994" },
+            { name: "Codice Fiscale", value: "MJLPRR89P17G605A" },
+          ],
+        },
+      },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/?payment=cancelled`,
     });
