@@ -60,7 +60,7 @@ export async function GET() {
       sale_start: decoded.sale_start,
       sale_end: decoded.sale_end,
       archive_at: decoded.archive_at,
-      promo_2x1: decoded.promo_2x1,
+      promo3x2: decoded.promo3x2,
       ticket_types: ttDecoded.types,
       reservations: undefined,
       reservation_total: reservations.length,
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
 
     const baseInsert = {
       title: body.title,
-      details: encodeSaleConfig(encodeTicketTypes(body.details || "", body.ticket_types || []), body.sale_start, body.sale_end, body.archive_at, body.promo_2x1),
+      details: encodeSaleConfig(encodeTicketTypes(body.details || "", body.ticket_types || []), body.sale_start, body.sale_end, body.archive_at, body.promo3x2),
       price: body.price || "free",
       flyer_url: body.flyer_url,
       flyer_ratio: body.flyer_ratio || "16:9",
@@ -140,7 +140,7 @@ export async function POST(req: Request) {
     }
 
     const decoded = decodeSaleConfig(data.details || "");
-    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_2x1: decoded.promo_2x1 });
+    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo3x2: decoded.promo3x2 });
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

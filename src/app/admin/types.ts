@@ -25,7 +25,7 @@ export interface Event {
   sale_start?: string;
   sale_end?: string;
   archive_at?: string;
-  promo_2x1?: boolean;
+  promo3x2?: boolean;
   ticket_types?: { name: string; color: string; price?: number }[];
   created_at: string;
   reservation_total?: number;

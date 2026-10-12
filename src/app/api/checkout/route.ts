@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       customer_email: email,
-      // El importe ya viene con el descuento del 2x1 aplicado (si corresponde)
+      // El importe ya viene con el descuento del 3x2 aplicado (si corresponde)
       // metido en una sola línea — Stripe no sabe nada de la promo, solo ve
       // el total final a cobrar por ese evento.
       line_items: priced.lines
@@ -54,9 +54,9 @@ export async function POST(req: NextRequest) {
           quantity: 1,
           price_data: {
             currency: "eur",
-            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo2x1),
+            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo3x2),
             product_data: {
-              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo2x1 ? " (promo 2x1)" : ""}`,
+              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo3x2 ? " (promo 3x2)" : ""}`,
             },
           },
         })),

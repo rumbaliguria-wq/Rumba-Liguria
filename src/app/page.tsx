@@ -59,7 +59,7 @@ interface CartLine {
   count: number;
   unitCents: number;
   maxPerPerson?: number | null;
-  promo2x1?: boolean;
+  promo3x2?: boolean;
 }
 
 interface GalleryItem {
@@ -110,7 +110,7 @@ interface Event {
   min_age?: number;
   sale_start?: string;
   sale_end?: string;
-  promo_2x1?: boolean;
+  promo3x2?: boolean;
   ticket_types?: { name: string; color: string; price?: number }[];
   created_at: string;
   reservation_total: number;
@@ -657,7 +657,7 @@ export default function Home() {
       count: reservation.count,
       unitCents: unitPriceCents(event.price, event.ticket_types, reservation.ticketType),
       maxPerPerson: event.max_per_person,
-      promo2x1: event.promo_2x1 || false,
+      promo3x2: event.promo3x2 || false,
     };
     // Una sola línea por evento: el servidor no permite reservar dos veces el mismo evento.
     setCart((prev) => [...prev.filter((l) => l.eventId !== event.id), line]);
@@ -675,7 +675,7 @@ export default function Home() {
     }));
   };
 
-  const cartTotalCents = cart.reduce((s, l) => s + lineTotalCents(l.unitCents, l.count, !!l.promo2x1), 0);
+  const cartTotalCents = cart.reduce((s, l) => s + lineTotalCents(l.unitCents, l.count, !!l.promo3x2), 0);
   const cartGuests = cart.reduce((s, l) => s + l.count, 0);
 
   const checkout = async () => {
@@ -1470,8 +1470,8 @@ export default function Home() {
                 {reservation && reservation.eventId === detailEvent.id && (
                   <div className="overflow-hidden animate-fade-in">
                     <div className="mt-4 p-4 rounded-xl" style={{ background: `${a}0d`, border: `1px solid ${a30}` }}>
-                      {detailEvent.promo_2x1 && (
-                        <p className="text-xs font-bold text-pink-400 mb-2">🎁 Promozione 2x1 — compra 2, paghi 1!</p>
+                      {detailEvent.promo3x2 && (
+                        <p className="text-xs font-bold text-pink-400 mb-2">🎁 Promozione 3x2 — compra 2, il 3° è gratis!</p>
                       )}
                       <p className="text-sm text-gray-300 mb-3">{t(lang, "events.howMany")}</p>
                       {/* Ticket Type Selector */}
@@ -1548,7 +1548,7 @@ export default function Home() {
                                 style={{ background: a }}
                               >
                                 <ShoppingCart size={16} />
-                                {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, !!detailEvent.promo_2x1))}
+                                {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, !!detailEvent.promo3x2))}
                               </button>
                             );
                           }
@@ -2087,7 +2087,7 @@ export default function Home() {
                             {l.ticketType && <p className="text-xs text-gray-400">{l.ticketType}</p>}
                             <p className="text-[11px] text-gray-500 mt-0.5">
                               {l.unitCents > 0 ? `${formatEUR(l.unitCents)} ${t(lang, "cart.perPerson")}` : t(lang, "events.free")}
-                              {l.promo2x1 && l.unitCents > 0 && <span className="text-pink-400 font-medium"> · 🎁 2x1</span>}
+                              {l.promo3x2 && l.unitCents > 0 && <span className="text-pink-400 font-medium"> · 🎁 3x2</span>}
                             </p>
                           </div>
                           <button
@@ -2104,7 +2104,7 @@ export default function Home() {
                             <span className="text-base font-bold w-6 text-center" style={{ color: a }}>{l.count}</span>
                             <button onClick={() => changeCartCount(l.eventId, 1)} disabled={l.count >= (l.maxPerPerson ? Math.min(l.maxPerPerson, 20) : 20)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-white disabled:opacity-30">+</button>
                           </div>
-                          <span className="text-sm font-bold text-white">{formatEUR(lineTotalCents(l.unitCents, l.count, !!l.promo2x1))}</span>
+                          <span className="text-sm font-bold text-white">{formatEUR(lineTotalCents(l.unitCents, l.count, !!l.promo3x2))}</span>
                         </div>
                       </div>
                     ))}

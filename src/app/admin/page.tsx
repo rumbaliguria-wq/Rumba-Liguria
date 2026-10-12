@@ -203,7 +203,7 @@ export default function AdminPage() {
       sale_start: "",
       sale_end: "",
       archive_at: "",
-      promo_2x1: false,
+      promo3x2: false,
     });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1128,7 +1128,7 @@ export default function AdminPage() {
         const z = d.getTimezoneOffset() * 60000;
         return new Date(d.getTime() - z).toISOString().slice(0, 16);
       })() : "",
-      promo_2x1: event.promo_2x1 || false,
+      promo3x2: event.promo3x2 || false,
       });
       setFormTicketTypes(event.ticket_types || []);
       setPlaceQuery(event.maps_url || "");
@@ -1834,7 +1834,7 @@ export default function AdminPage() {
         sale_start: "",
         sale_end: "",
         archive_at: "",
-        promo_2x1: false,
+        promo3x2: false,
         });
       setPlaceQuery("");
       setPlaceSuggestions([]);
@@ -3358,21 +3358,21 @@ export default function AdminPage() {
                         <p className="text-[10px] text-gray-500 mt-1">Se scrivi solo un importo (es. 10 o €10) l&apos;evento si paga online con carta. Con testo libero (es. &quot;Ingresso libero&quot;) resta gratis. Il prezzo di un tipo di biglietto ha la precedenza.</p>
                         {parsePriceCents(formData.price) > 0 && (
                           <div
-                            onClick={() => setFormData((p) => ({ ...p, promo_2x1: !p.promo_2x1 }))}
+                            onClick={() => setFormData((p) => ({ ...p, promo3x2: !p.promo3x2 }))}
                             className={`mt-2 flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all ${
-                              formData.promo_2x1
+                              formData.promo3x2
                                 ? "bg-pink-500/10 border-pink-500/30"
                                 : "bg-white/5 border-white/10 hover:border-white/20"
                             }`}
                           >
                             <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
-                              formData.promo_2x1 ? "bg-pink-500 border-pink-500" : "border-gray-600"
+                              formData.promo3x2 ? "bg-pink-500 border-pink-500" : "border-gray-600"
                             }`}>
-                              {formData.promo_2x1 && <span className="text-white text-[10px]">✓</span>}
+                              {formData.promo3x2 && <span className="text-white text-[10px]">✓</span>}
                             </div>
                             <div>
-                              <p className="text-sm text-white font-medium">🎁 Promozione 2x1</p>
-                              <p className="text-[10px] text-gray-500">Paga la metà delle entrate (arrotondata per eccesso): 2 → paga 1, 3 → paga 2, 4 → paga 2.</p>
+                              <p className="text-sm text-white font-medium">🎁 Promozione 3x2</p>
+                              <p className="text-[10px] text-gray-500">Ogni 3 biglietti, 1 è gratis: 2 → paga 2, 3 → paga 2, 4 → paga 3, 6 → paga 4.</p>
                             </div>
                           </div>
                         )}

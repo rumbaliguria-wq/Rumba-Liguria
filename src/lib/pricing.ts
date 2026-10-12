@@ -38,12 +38,12 @@ export function getUnitPriceCents(
   return unitPriceCents(event.price, types, ticketType);
 }
 
-// Promoción "2x1" opcional por evento: se paga la mitad de las entradas
-// (redondeado para arriba), pero se reciben todas las que se pidieron —
-// cada una con su propio QR. Con promo activa: 1→1, 2→1, 3→2, 4→2 pagas.
-export function lineTotalCents(unitCents: number, count: number, promo2x1: boolean): number {
+// Promoción "3x2" opcional por evento: cada 3 entradas, 1 sale gratis
+// (se paga 2 de cada 3), pero se reciben todas las que se pidieron — cada
+// una con su propio QR. Con promo activa: 1→1, 2→2, 3→2, 4→3, 6→4 pagas.
+export function lineTotalCents(unitCents: number, count: number, promo3x2: boolean): number {
   if (unitCents <= 0 || count <= 0) return 0;
-  const payableCount = promo2x1 ? Math.ceil(count / 2) : count;
+  const payableCount = promo3x2 ? count - Math.floor(count / 3) : count;
   return unitCents * payableCount;
 }
 
