@@ -42,6 +42,9 @@ import {
     Copy,
     Link2,
     Download,
+    DoorOpen,
+    Ban,
+    IdCard,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -50,6 +53,8 @@ import CardsPanel from "@/components/CardsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
+import { getEventExpiryUTC } from "@/lib/eventExpiry";
+import { decodeIdType } from "@/lib/cardTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
 } from "./types";
@@ -83,10 +88,52 @@ async function drawVipQRCanvas(url: string, vipNumber: number): Promise<HTMLCanv
 
 // Entradas vendidas en efectivo: son entradas reales (no un perk VIP), así
 // que llevan el QR normal en blanco y negro, sin la insignia dorada.
-async function drawPlainQRCanvas(url: string): Promise<HTMLCanvasElement> {
+async function drawCashQRCanvas(url: string): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   await QRCode.toCanvas(canvas, url, { width: 280, margin: 1, errorCorrectionLevel: "M" });
   return canvas;
+}
+
+// QR liso en buena resolución — se usa para el Codice Gruppo, donde antes
+// solo había un QR chiquito en pantalla que había que fotografiar (y perdía
+// calidad al reenviarse hasta volverse ilegible).
+async function drawPlainQRCanvas(url: string): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement("canvas");
+  await QRCode.toCanvas(canvas, url, { width: 500, margin: 2, errorCorrectionLevel: "H" });
+  return canvas;
+}
+
+// En el celular intenta abrir primero el menú nativo para compartir (donde
+// aparece WhatsApp si está instalado); si no se puede o el navegador lo
+// rechaza, descarga la imagen directamente. Devuelve true si se compartió.
+async function shareOrDownloadCanvas(canvas: HTMLCanvasElement, filename: string, shareTitle: string): Promise<boolean> {
+  // canvas.toBlob no debería tardar, pero si por lo que sea nunca llama al
+  // callback (visto en algún entorno raro), no queremos que el botón se
+  // quede "colgado" sin hacer nada — a los 3s se pasa directo a la descarga
+  // por toDataURL, que es sincrónica.
+  const blob: Blob | null = await Promise.race([
+    new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png")),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+  ]);
+  if (blob) {
+    const file = new File([blob], filename, { type: "image/png" });
+    const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files: [file] });
+    if (canShareFiles) {
+      try {
+        await navigator.share({ files: [file], title: shareTitle });
+        return true;
+      } catch (err) {
+        // El usuario canceló el menú de compartir a propósito — no forzar la descarga.
+        if (err instanceof Error && err.name === "AbortError") return true;
+        // Cualquier otro fallo (ej. rechazado por el navegador): se descarga igual abajo.
+      }
+    }
+  }
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+  return false;
 }
 
 export default function AdminPage() {
@@ -174,6 +221,9 @@ export default function AdminPage() {
   const [reservationTypeFilter, setReservationTypeFilter] = useState<string>("all");
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
+  const [statsTessereCount, setStatsTessereCount] = useState<number | null>(null);
+  const [tessereEntriesOpen, setTessereEntriesOpen] = useState(false);
+  const [tessereEntries, setTessereEntries] = useState<{ full_name: string; city: string | null; id_type: string | null; scanned_at: string }[] | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -222,20 +272,40 @@ export default function AdminPage() {
   const [pinSaving, setPinSaving] = useState(false);
   const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
+  // Accesos de personal de entrada: link+PIN que solo dejan escanear los
+  // tickets de UN evento puntual, sin ver nada del panel.
+  const [doorPasses, setDoorPasses] = useState<{ id: string; name: string; pin: string; active: boolean; event_id: string; events: { title: string; event_date_iso: string | null; archived: boolean } | null }[]>([]);
+  const [showDoorSection, setShowDoorSection] = useState(false);
+  const [doorEventId, setDoorEventId] = useState("");
+  const [doorName, setDoorName] = useState("");
+  const [doorPin, setDoorPin] = useState("");
+  const [doorSaving, setDoorSaving] = useState(false);
+  const [expandedDoorId, setExpandedDoorId] = useState<string | null>(null);
+  const [editingDoorPinId, setEditingDoorPinId] = useState<string | null>(null);
+  const [doorPinDraft, setDoorPinDraft] = useState("");
+  // Codice Gruppo: un solo QR que vale para mucha gente (100-200), con
+  // tope opcional — cada escaneo suma una entrada en vez de bloquearse.
+  const [groupPasses, setGroupPasses] = useState<{ id: string; code: string; label: string | null; max_entries: number | null; entries_count: number; event_id: string; events: { title: string; archived: boolean } | null }[]>([]);
+  const [showGroupSection, setShowGroupSection] = useState(false);
+  const [groupEventId, setGroupEventId] = useState("");
+  const [groupLabel, setGroupLabel] = useState("");
+  const [groupMaxInput, setGroupMaxInput] = useState("");
+  const [groupSaving, setGroupSaving] = useState(false);
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // QR Scanner
-  const [showScanChooser, setShowScanChooser] = useState(false);
-  const [cardScanTrigger, setCardScanTrigger] = useState(0);
   const [showScanEventPicker, setShowScanEventPicker] = useState(false);
   const [scanEventId, setScanEventId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
-  const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean } | null>(null);
+  const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean; isGroup?: boolean; groupLabel?: string; groupCount?: number; groupMax?: number | null } | null>(null);
+  const [cardScanResult, setCardScanResult] = useState<{ full_name: string; photo_url: string | null; id_type: string | null; visit_count: number; logged: boolean; eventTitle?: string } | null>(null);
+  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
   const [scanConfirming, setScanConfirming] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const [userSearch, setUserSearch] = useState("");
+  const [userTypeFilter, setUserTypeFilter] = useState<string>("all");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -258,11 +328,13 @@ export default function AdminPage() {
     stopScanner();
     setShowScanner(false);
     setScanResult(null);
+    setCardScanResult(null);
     setScanError(null);
     setScanSuccess(false);
     setScanLoading(false);
     setScanConfirming(false);
     setScanEventId(null);
+    setLiveCounts(null);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -287,11 +359,47 @@ export default function AdminPage() {
     setScanLoading(true);
     setScanError(null);
     setScanResult(null);
+    setCardScanResult(null);
     try {
       // Only fetch info — do NOT confirm yet, wait for user to press confirm button
       const infoRes = await fetch(`/api/reservations/${code}`);
       if (!infoRes.ok) {
         const d = await infoRes.json();
+        // Non è un codice di prenotazione — prova come tessera cliente prima
+        // di arrendersi. Così l'addetto non deve scegliere in anticipo cosa
+        // sta per scansionare: biglietto o tessera, va bene lo stesso scanner.
+        if (d.error === "Reservation not found") {
+          try {
+            const cardRes = await fetch("/api/cards/scan", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code, event_id: scanEventId }),
+            });
+            const cardData = await cardRes.json();
+            if (cardRes.ok) {
+              setCardScanResult({
+                full_name: cardData.card.full_name,
+                photo_url: cardData.card.photo_url,
+                id_type: cardData.card.id_type,
+                visit_count: cardData.visit_count,
+                logged: cardData.logged,
+                eventTitle: cardData.scan?.events?.title,
+              });
+              setScanLoading(false);
+              if (scanEventId) {
+                fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+              }
+              return;
+            }
+            setScanError(cardData.error || "Codice non riconosciuto");
+            setScanLoading(false);
+            return;
+          } catch {
+            setScanError("Errore di connessione");
+            setScanLoading(false);
+            return;
+          }
+        }
         setScanError(d.error || "Prenotazione non trovata");
         setScanLoading(false);
         return;
@@ -300,6 +408,41 @@ export default function AdminPage() {
       if (scanEventId && reservation.event_id !== scanEventId) {
         setScanError(`Biglietto di un altro evento (${reservation.events?.title || "sconosciuto"})`);
         setScanLoading(false);
+        return;
+      }
+      // Codice Gruppo: se registra al toque, sin pedir confirmación — con
+      // 100/200 personas en la puerta no hay tiempo de revisar una por una
+      // como con una prenotazione normal.
+      if (reservation.is_group) {
+        try {
+          const patchRes = await fetch(`/api/reservations/${code}`, { method: "PATCH" });
+          const d = await patchRes.json().catch(() => ({}));
+          if (!patchRes.ok) {
+            setScanError(d.error || "Errore validazione");
+            setScanLoading(false);
+            return;
+          }
+          setScanResult({
+            name: reservation.group.label,
+            email: "",
+            event: reservation.events?.title || "Evento",
+            code,
+            rawCode: code,
+            isGroup: true,
+            groupLabel: reservation.group.label,
+            groupCount: d.group?.entries_count ?? reservation.group.entries_count,
+            groupMax: reservation.group.max_entries,
+          });
+          setScanSuccess(true);
+          setScanLoading(false);
+          fetchReservationsRef.current?.();
+          if (scanEventId) {
+            fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+          }
+        } catch {
+          setScanError("Errore di connessione");
+          setScanLoading(false);
+        }
         return;
       }
       if (reservation.status === "used") { setScanError("Già utilizzato"); setScanLoading(false); return; }
@@ -336,21 +479,27 @@ export default function AdminPage() {
     setScanConfirming(true);
     try {
       const patchRes = await fetch(`/api/reservations/${scanResult.rawCode}`, { method: "PATCH" });
+      const d = await patchRes.json().catch(() => ({}));
       if (!patchRes.ok) {
-        const d = await patchRes.json();
         setScanError(d.error || "Errore validazione");
         setScanResult(null);
         setScanConfirming(false);
         return;
       }
+      if (d.is_group) {
+        setScanResult((prev) => prev ? { ...prev, groupCount: d.group.entries_count } : prev);
+      }
       setScanSuccess(true);
       fetchReservationsRef.current?.();
+      if (scanEventId) {
+        fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+      }
     } catch { setScanError("Errore di connessione"); setScanResult(null); }
     finally { setScanConfirming(false); }
-  }, [scanResult]);
+  }, [scanResult, scanEventId]);
 
   const startScanner = useCallback(async () => {
-    setScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
+    setScanResult(null); setCardScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
     lastScannedRef.current = null;
     if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
@@ -435,6 +584,17 @@ export default function AdminPage() {
     }
   }, [handleValidateCode]);
 
+  // Arranca la cámara recién cuando scanEventId YA se actualizó y se vio
+  // reflejado en un nuevo render (no en el mismo clic que lo setea) — si no,
+  // handleValidateCode queda atado al scanEventId viejo (null) para toda esa
+  // sesión de escaneo: el encabezado muestra bien el evento elegido, pero el
+  // escaneo de tessera se registra como "Evento Privato" por error.
+  useEffect(() => {
+    if (showScanner && scanEventId) startScanner();
+    return () => stopScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScanner, scanEventId]);
+
   const fetchEvents = useCallback(async () => {
     const res = await fetch("/api/admin/events");
     const data = await res.json();
@@ -462,6 +622,22 @@ export default function AdminPage() {
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data)) setUsers(data);
+    } catch {}
+  }, []);
+
+  const fetchDoorPasses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/door-passes");
+      const data = await res.json();
+      if (Array.isArray(data)) setDoorPasses(data);
+    } catch {}
+  }, []);
+
+  const fetchGroupPasses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/group-passes");
+      const data = await res.json();
+      if (Array.isArray(data)) setGroupPasses(data);
     } catch {}
   }, []);
 
@@ -577,12 +753,14 @@ export default function AdminPage() {
       fetchReservations();
       fetchGallery();
       fetchRentals();
+      fetchDoorPasses();
+      fetchGroupPasses();
       // Lightweight counts for the "Panoramica" dashboard — reuse the same
       // endpoints CardsPanel and the VIP generator already fetch from.
       fetch("/api/reservations/vip").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setVipCodesCount(d.length); }).catch(() => {});
       fetch("/api/cards").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setClientCardsCount(d.length); }).catch(() => {});
     }
-  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals]);
+  }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals, fetchDoorPasses, fetchGroupPasses]);
 
   const finishLogin = () => {
     // La cookie de sesión ya la ha puesto el servidor (login directo o 2FA).
@@ -1000,9 +1178,16 @@ export default function AdminPage() {
       // fall back to triggering the downloads one after another there.
       const canShareFiles = typeof navigator !== "undefined" && !!navigator.canShare && navigator.canShare({ files });
       if (canShareFiles) {
-        await navigator.share({ files, title: "Codici VIP Rumba Liguria" });
-        toast.success("Salva o condividi le immagini dal pannello aperto");
-        return;
+        try {
+          await navigator.share({ files, title: "Codici VIP Rumba Liguria" });
+          toast.success("Salva o condividi le immagini dal pannello aperto");
+          return;
+        } catch (shareErr) {
+          // L'utente ha cancellato la condivisione: non è un errore, non scaricare nulla.
+          if (shareErr instanceof Error && shareErr.name === "AbortError") return;
+          // Il browser dice di poter condividere ma poi rifiuta (es. troppi file
+          // o troppo pesanti insieme) — invece di fallire, si scaricano uno a uno.
+        }
       }
 
       for (const file of files) {
@@ -1033,11 +1218,8 @@ export default function AdminPage() {
     const url = `${origin}/verify/${code}`;
     try {
       const canvas = await drawVipQRCanvas(url, vipNumber ?? 0);
-      const link = document.createElement("a");
-      link.download = `vip-${vipNumber}-${code}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      toast.success("QR scaricato!");
+      const shared = await shareOrDownloadCanvas(canvas, `vip-${vipNumber}-${code}.png`, "Codice VIP Rumba Liguria");
+      if (!shared) toast.success("QR scaricato!");
     } catch { toast.error("Errore download"); }
   };
 
@@ -1073,7 +1255,7 @@ export default function AdminPage() {
   const handleDownloadOneCashSale = async (code: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
     try {
-      const canvas = await drawPlainQRCanvas(`${origin}/verify/${code}`);
+      const canvas = await drawCashQRCanvas(`${origin}/verify/${code}`);
       const link = document.createElement("a");
       link.download = `biglietto-${code}.png`;
       link.href = canvas.toDataURL("image/png");
@@ -1089,7 +1271,7 @@ export default function AdminPage() {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
       const files: File[] = [];
       for (const item of cashSaleCodes) {
-        const canvas = await drawPlainQRCanvas(`${origin}/verify/${item.code}`);
+        const canvas = await drawCashQRCanvas(`${origin}/verify/${item.code}`);
         const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
         if (blob) files.push(new File([blob], `biglietto-${item.code}.png`, { type: "image/png" }));
       }
@@ -1235,6 +1417,106 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setReassigning(false); }
+  };
+
+  const handleSaveDoorPass = async () => {
+    if (!doorName.trim()) { toast.error("Inserisci il nome dell'accesso"); return; }
+    if (!doorEventId) { toast.error("Seleziona un evento"); return; }
+    if (!doorPin.trim()) { toast.error("Inserisci un PIN"); return; }
+    setDoorSaving(true);
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: doorName.trim(), event_id: doorEventId, pin: doorPin.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(d.updated ? "Accesso aggiornato!" : "Accesso creato!");
+        setDoorName("");
+        setDoorPin("");
+        fetchDoorPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setDoorSaving(false); }
+  };
+
+  const handleChangeDoorPin = async (pass: { id: string; name: string; event_id: string }) => {
+    if (!doorPinDraft.trim()) { toast.error("Inserisci il nuovo PIN"); return; }
+    setDoorSaving(true);
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: pass.name, event_id: pass.event_id, pin: doorPinDraft.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`Nuovo PIN di "${pass.name}": ${doorPinDraft.trim()}`);
+        setEditingDoorPinId(null);
+        setDoorPinDraft("");
+        fetchDoorPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setDoorSaving(false); }
+  };
+
+  const handleToggleDoorActive = async (pass: { id: string; active: boolean }) => {
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id, active: !pass.active }),
+      });
+      if (res.ok) { toast.success(pass.active ? "Accesso disattivato" : "Accesso riattivato"); fetchDoorPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
+
+  const handleDeleteDoorPass = async (pass: { id: string; name: string }) => {
+    if (!confirm(`Eliminare definitivamente l'accesso "${pass.name}"? Il suo link smetterà di funzionare.`)) return;
+    try {
+      const res = await fetch("/api/admin/door-passes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id }),
+      });
+      if (res.ok) { toast.success("Accesso eliminato"); fetchDoorPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
+  };
+
+  const handleCreateGroupPass = async () => {
+    if (!groupEventId) { toast.error("Seleziona un evento"); return; }
+    setGroupSaving(true);
+    try {
+      const res = await fetch("/api/admin/group-passes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: groupEventId, label: groupLabel.trim() || undefined, max_entries: groupMaxInput.trim() || null }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success("Codice gruppo creato!");
+        setGroupLabel("");
+        setGroupMaxInput("");
+        fetchGroupPasses();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setGroupSaving(false); }
+  };
+
+  const handleDeleteGroupPass = async (pass: { id: string; label: string | null }) => {
+    if (!confirm(`Eliminare definitivamente il codice "${pass.label || "Gruppo"}"? Le entrate già registrate restano nelle statistiche.`)) return;
+    try {
+      const res = await fetch("/api/admin/group-passes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pass.id }),
+      });
+      if (res.ok) { toast.success("Codice eliminato"); fetchGroupPasses(); }
+      else toast.error("Errore");
+    } catch { toast.error("Errore di connessione"); }
   };
 
   const handleChangePin = async (name: string, eventId: string) => {
@@ -1748,7 +2030,7 @@ export default function AdminPage() {
             <div className="flex items-center gap-1 sm:gap-1.5">
               <ThemeToggle className="!w-8 !h-8 sm:!w-9 sm:!h-9" />
               <button
-                onClick={() => setShowScanChooser(true)}
+                onClick={() => setShowScanEventPicker(true)}
                 className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-white transition-all active:scale-95"
                 style={{ background: accentColor }}
                 title="Scansiona QR"
@@ -1869,7 +2151,7 @@ export default function AdminPage() {
             accentColor={accentColor}
             isLightTheme={isLightTheme}
             onNewEvent={() => { resetForm(); setShowForm(true); setActiveTab("events"); }}
-            onOpenScanner={() => setShowScanChooser(true)}
+            onOpenScanner={() => setShowScanEventPicker(true)}
             onGoToTab={(tab) => setActiveTab(tab)}
           />
         )}
@@ -1994,11 +2276,8 @@ export default function AdminPage() {
                               onClick={async () => {
                                 try {
                                   const canvas = await drawVipQRCanvas(url, item.vip_number);
-                                  const link = document.createElement("a");
-                                  link.download = `vip-${item.vip_number}-${item.code}.png`;
-                                  link.href = canvas.toDataURL("image/png");
-                                  link.click();
-                                  toast.success("QR scaricato!");
+                                  const shared = await shareOrDownloadCanvas(canvas, `vip-${item.vip_number}-${item.code}.png`, "Codice VIP Rumba Liguria");
+                                  if (!shared) toast.success("QR scaricato!");
                                 } catch { toast.error("Errore download"); }
                               }}
                               className="w-full py-1.5 rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-all text-[10px] font-medium"
@@ -2526,6 +2805,292 @@ export default function AdminPage() {
                     );
                   })()}
                 </div>
+              </div>
+            )}
+
+            {/* ─── Accesso Scanner (personale ingresso) ─── */}
+            <button
+              onClick={() => setShowDoorSection(!showDoorSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <DoorOpen size={16} className="text-blue-400" />
+                Accesso Scanner (personale ingresso)
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showDoorSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showDoorSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-blue-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Per dare a qualcuno (es. un&apos;altra entrata del locale) un accesso che serve SOLO per scansionare i
+                  ticket di un evento — niente pannello, niente altri dati. Smette di funzionare da solo appena finisce quella festa.
+                </p>
+                <div className="flex items-end gap-3 mb-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                    <select
+                      value={doorEventId}
+                      onChange={(e) => setDoorEventId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                    >
+                      <option value="">Seleziona evento</option>
+                      {events.filter(e => !e.archived).map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Nome accesso</label>
+                    <input
+                      type="text"
+                      value={doorName}
+                      onChange={(e) => setDoorName(e.target.value)}
+                      placeholder="es. Entrata 2"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="w-24 flex-shrink-0">
+                    <label className="text-xs text-gray-400 mb-1 block">PIN</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={doorPin}
+                      onChange={(e) => setDoorPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="1234"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveDoorPass}
+                    disabled={doorSaving}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-500 transition-all disabled:opacity-50"
+                  >
+                    {doorSaving ? "..." : "Crea"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mb-3">Se il nome esiste già (es. la settimana prossima), lo riassegna al nuovo evento scelto sopra.</p>
+
+                {doorPasses.length === 0 ? (
+                  <p className="text-xs text-gray-500">Nessun accesso creato ancora</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {doorPasses.map((pass) => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                      const link = `${origin}/ingresso/${encodeURIComponent(pass.name)}`;
+                      const expired = !!pass.events?.event_date_iso && Date.now() > getEventExpiryUTC(pass.events.event_date_iso);
+                      return (
+                        <div key={pass.id} className={`p-2 rounded-lg bg-white/5 ${!pass.active || expired ? "opacity-50" : ""}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <button
+                                onClick={() => setExpandedDoorId((v) => (v === pass.id ? null : pass.id))}
+                                title="Vedi il link"
+                                className="p-1 rounded text-gray-500 hover:text-blue-400 hover:bg-white/5 flex-shrink-0"
+                              >
+                                <Link2 size={12} />
+                              </button>
+                              <span className="text-xs font-medium text-white truncate">{pass.name}</span>
+                              <span className="text-[9px] text-gray-500 truncate">{pass.events?.title}</span>
+                              {expired && <span className="text-[9px] text-red-400 flex-shrink-0">Scaduto</span>}
+                              {!pass.active && <span className="text-[9px] text-red-400 flex-shrink-0">Disattivo</span>}
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {editingDoorPinId !== pass.id && (
+                                <button
+                                  onClick={() => { setEditingDoorPinId(pass.id); setDoorPinDraft(""); }}
+                                  className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                                  title="Cambia il PIN"
+                                >
+                                  PIN {pass.pin}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleToggleDoorActive(pass)}
+                                title={pass.active ? "Disattiva" : "Riattiva"}
+                                className="p-1 rounded text-gray-500 hover:text-yellow-400"
+                              >
+                                {pass.active ? <Ban size={13} /> : <RotateCcw size={13} />}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDoorPass(pass)}
+                                title="Elimina"
+                                className="p-1 rounded text-gray-500 hover:text-red-400"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          {editingDoorPinId === pass.id && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                autoFocus
+                                value={doorPinDraft}
+                                onChange={(e) => setDoorPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                onKeyDown={(e) => e.key === "Enter" && handleChangeDoorPin(pass)}
+                                placeholder="Nuovo PIN"
+                                className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                              />
+                              <button
+                                onClick={() => handleChangeDoorPin(pass)}
+                                disabled={doorSaving}
+                                className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                              >
+                                Salva
+                              </button>
+                              <button
+                                onClick={() => { setEditingDoorPinId(null); setDoorPinDraft(""); }}
+                                className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                              >
+                                Annulla
+                              </button>
+                            </div>
+                          )}
+                          {expandedDoorId === pass.id && (
+                            <div className="mt-2 pt-2 border-t border-white/10">
+                              <p className="text-[9px] text-gray-500 px-1 mb-1">Link da dare al personale:</p>
+                              <div className="p-1.5 rounded-lg bg-white/5 flex items-center gap-2">
+                                <span className="text-[10px] text-gray-400 flex-1 truncate">{link}</span>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(link).then(() => toast.success("Link copiato!")); }}
+                                  className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-medium hover:bg-blue-500/30 flex items-center gap-1 flex-shrink-0"
+                                >
+                                  <Copy size={10} /> Copia link
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── Codice Gruppo ─── */}
+            <button
+              onClick={() => setShowGroupSection(!showGroupSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <Users size={16} className="text-pink-400" />
+                Codice Gruppo (un QR per molte persone)
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showGroupSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showGroupSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-pink-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Per un gruppo grande (es. 100-200 persone) a cui un altro locale ti ha dato un solo QR valido per
+                  tutti. Ogni scansione conta come un ingresso in più — non si blocca dopo il primo uso, come i
+                  biglietti normali. Se metti un tetto, si rifiuta da solo una volta raggiunto.
+                </p>
+                <div className="flex items-end gap-3 mb-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                    <select
+                      value={groupEventId}
+                      onChange={(e) => setGroupEventId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40 [color-scheme:dark]"
+                    >
+                      <option value="">Seleziona evento</option>
+                      {events.filter(e => !e.archived).map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Nome (opzionale)</label>
+                    <input
+                      type="text"
+                      value={groupLabel}
+                      onChange={(e) => setGroupLabel(e.target.value)}
+                      placeholder="es. Gruppo Erasmus"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <div className="w-24 flex-shrink-0">
+                    <label className="text-xs text-gray-400 mb-1 block">Tetto max.</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={groupMaxInput}
+                      onChange={(e) => setGroupMaxInput(e.target.value)}
+                      placeholder="es. 150"
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleCreateGroupPass}
+                    disabled={groupSaving}
+                    className="px-4 py-2.5 rounded-xl bg-pink-600 text-white font-semibold text-sm hover:bg-pink-500 transition-all disabled:opacity-50"
+                  >
+                    {groupSaving ? "..." : "Genera"}
+                  </button>
+                </div>
+
+                {groupPasses.length === 0 ? (
+                  <p className="text-xs text-gray-500">Nessun codice gruppo creato ancora</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {groupPasses.map((pass) => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                      const url = `${origin}/verify/${pass.code}`;
+                      const full = pass.max_entries !== null && pass.entries_count >= pass.max_entries;
+                      return (
+                        <div key={pass.id} className={`p-3 rounded-xl bg-white/5 ${pass.events?.archived ? "opacity-50" : ""}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <span className="text-sm font-medium text-white truncate">{pass.label || "Gruppo"}</span>
+                                <span className="text-[9px] text-gray-500 truncate">{pass.events?.title}</span>
+                                {full && <span className="text-[9px] text-red-400 flex-shrink-0">Pieno</span>}
+                              </div>
+                              <span className="text-xs font-bold text-pink-400">
+                                {pass.entries_count}{pass.max_entries !== null ? ` / ${pass.max_entries}` : ""} entrate
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteGroupPass(pass)}
+                              title="Elimina"
+                              className="p-1 rounded text-gray-500 hover:text-red-400 flex-shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                          <div className="mt-2 flex items-center gap-3">
+                            <div className="p-1.5 bg-white rounded-lg flex-shrink-0">
+                              <QRCodeSVG value={url} size={70} />
+                            </div>
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <p className="text-[9px] text-gray-500">QR da condividere con il gruppo:</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={async () => {
+                                    const canvas = await drawPlainQRCanvas(url);
+                                    await shareOrDownloadCanvas(canvas, `gruppo-${pass.code}.png`, `QR Gruppo ${pass.label || ""}`);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-pink-500/20 text-pink-400 text-[11px] font-semibold hover:bg-pink-500/30 flex items-center gap-1.5 flex-shrink-0"
+                                >
+                                  <Download size={12} /> Scarica QR
+                                </button>
+                                <button
+                                  onClick={() => { navigator.clipboard.writeText(url).then(() => toast.success("Link copiato!")); }}
+                                  title="Copia link"
+                                  className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white flex-shrink-0"
+                                >
+                                  <Copy size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -3147,6 +3712,19 @@ export default function AdminPage() {
                       </div>
                         <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
                           <button
+                            onClick={() => {
+                              setStatsEvent(event);
+                              setStatsTessereCount(null);
+                              setTessereEntriesOpen(false);
+                              setTessereEntries(null);
+                              fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                            }}
+                            title="Statistiche evento"
+                            className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
+                          >
+                            <BarChart2 size={15} />
+                          </button>
+                          <button
                             onClick={() => handleNotifyEvent(event.id, event.title)}
                             disabled={notifying === event.id}
                             title="Invia email a tutti gli utenti"
@@ -3219,7 +3797,13 @@ export default function AdminPage() {
                           </div>
                           <div className="flex gap-1.5 flex-shrink-0">
                             <button
-                              onClick={() => setStatsEvent(event)}
+                              onClick={() => {
+                                setStatsEvent(event);
+                                setStatsTessereCount(null);
+                                setTessereEntriesOpen(false);
+                                setTessereEntries(null);
+                                fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                              }}
                               title="Statistiche evento"
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 transition-all text-[11px] font-medium"
                             >
@@ -3258,7 +3842,25 @@ export default function AdminPage() {
           </>)}
 
           {/* ─── Users Tab ─── */}
-        {activeTab === "users" && (
+        {activeTab === "users" && (() => {
+          const q = userSearch.toLowerCase().trim();
+          const bySearch = q ? users.filter(u =>
+            (u.name && u.name.toLowerCase().includes(q)) ||
+            u.email.toLowerCase().includes(q) ||
+            (u.phone && u.phone.includes(userSearch))
+          ) : users;
+          const matchesUserType = (u: typeof users[number], type: string) =>
+            type === "NONE" ? u.source !== "registered" : u.userType === type;
+          const userTypeCount = (type: string) => bySearch.filter(u => matchesUserType(u, type)).length;
+          const filteredUsers = userTypeFilter === "all" ? bySearch : bySearch.filter(u => matchesUserType(u, userTypeFilter));
+          const copyUserNames = () => {
+            const names = filteredUsers.map(u => u.name || u.email).filter(Boolean);
+            if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+            navigator.clipboard.writeText(names.join("\n"))
+              .then(() => toast.success(`${names.length} nomi copiati!`))
+              .catch(() => toast.error("Errore durante la copia"));
+          };
+          return (
           <div>
             <h2 className="text-base sm:text-lg font-bold mb-4">
               👥 Tutti gli Utenti ({users.length})
@@ -3279,18 +3881,45 @@ export default function AdminPage() {
                 </button>
               )}
             </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3">
+              {[
+                { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
+                { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
+                { type: "ALTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
+                { type: "NONE", label: "Non registrato", color: "text-gray-400", border: "border-white/10" },
+              ].map(({ type, label, color, border }) => (
+                <button
+                  key={type}
+                  onClick={() => setUserTypeFilter(prev => prev === type ? "all" : type)}
+                  className={`text-left p-3 rounded-xl bg-[#0a0a12] border transition-all ${userTypeFilter === type ? "border-white/40 ring-1 ring-white/20" : border} hover:border-white/25`}
+                >
+                  <p className={`text-lg sm:text-xl font-bold ${color}`}>{userTypeCount(type)}</p>
+                  <p className="text-[10px] text-gray-500">{label}</p>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <p className="text-[11px] text-gray-500">
+                {userTypeFilter === "all" ? "Tutti i tipi" : `Filtrato: ${userTypeFilter === "NONE" ? "Non registrato" : userTypeFilter.charAt(0) + userTypeFilter.slice(1).toLowerCase()}`}
+                {userTypeFilter !== "all" && (
+                  <button onClick={() => setUserTypeFilter("all")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+                )}
+              </p>
+              <button
+                onClick={copyUserNames}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+              >
+                <Copy size={12} /> Copia nomi
+              </button>
+            </div>
             <div className="space-y-2">
-              {users.length === 0 ? (
+              {filteredUsers.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Users size={40} className="mx-auto mb-3 text-gray-600" />
                   <p>Nessun utente trovato</p>
                 </div>
               ) : (
-                (userSearch ? users.filter(u =>
-                  (u.name && u.name.toLowerCase().includes(userSearch.toLowerCase())) ||
-                  u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                  (u.phone && u.phone.includes(userSearch))
-                ) : users).map((user) => (
+                filteredUsers.map((user) => (
                     <div
                       key={user.id}
                       className="rounded-xl bg-[#0a0a12] border border-blue-500/10 animate-fade-in overflow-hidden"
@@ -3387,22 +4016,10 @@ export default function AdminPage() {
                   </div>
                 ))
               )}
-              {userSearch && users.length > 0 && (() => {
-                const filtered = users.filter(u =>
-                  (u.name && u.name.toLowerCase().includes(userSearch.toLowerCase())) ||
-                  u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                  (u.phone && u.phone.includes(userSearch))
-                );
-                return filtered.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <Search size={40} className="mx-auto mb-3 text-gray-600" />
-                    <p>Nessun utente trovato per "{userSearch}"</p>
-                  </div>
-                ) : null;
-              })()}
             </div>
           </div>
-          )}
+          );
+        })()}
 
             {/* ─── Reservations Tab ─── */}
             {activeTab === "reservations" && (
@@ -3481,7 +4098,7 @@ export default function AdminPage() {
                     : baseFiltered.filter(r => matchesType(r, reservationTypeFilter));
                   const copyNames = () => {
                     const names = filtered
-                      .filter(r => r.status !== "cancelled" && r.user_email && !r.user_email.startsWith("__link__") && r.user_email !== "__vip__")
+                      .filter(r => r.status !== "cancelled" && r.user_email && !r.user_email.startsWith("__link__") && r.user_email !== "__vip__" && r.user_email !== "__group__")
                       .map(r => r.user_name)
                       .filter(Boolean);
                     if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
@@ -3985,7 +4602,7 @@ export default function AdminPage() {
             )}
 
             {/* ─── Tessere (Cards) Tab ─── */}
-            {activeTab === "cards" && <CardsPanel autoOpenScannerTrigger={cardScanTrigger} />}
+            {activeTab === "cards" && <CardsPanel />}
 
             {/* ─── Settings Tab ─── */}
             {activeTab === "settings" && (
@@ -4175,45 +4792,7 @@ export default function AdminPage() {
         </div>
         </div>
 
-      {/* ─── Scan chooser: pick which kind of QR to scan ─── */}
-      {showScanChooser && (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-[#0a0a12] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-white font-bold text-lg">Cosa vuoi scansionare?</h2>
-              <button onClick={() => setShowScanChooser(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
-                <X size={18} />
-              </button>
-            </div>
-            <button
-              onClick={() => { setShowScanChooser(false); setShowScanEventPicker(true); }}
-              className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
-            >
-              <div className="w-11 h-11 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
-                <Ticket size={20} className="text-green-400" />
-              </div>
-              <div>
-                <p className="text-white font-semibold text-sm">Entrata con Prenotazione</p>
-                <p className="text-gray-500 text-xs">Biglietto di un evento — uso singolo</p>
-              </div>
-            </button>
-            <button
-              onClick={() => { setShowScanChooser(false); setActiveTab("cards"); setCardScanTrigger((t) => t + 1); }}
-              className="w-full flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all text-left"
-            >
-              <div className="w-11 h-11 rounded-full bg-blue-500/15 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-                <CreditCard size={20} className="text-blue-400" />
-              </div>
-              <div>
-                <p className="text-white font-semibold text-sm">Tessera Cliente</p>
-                <p className="text-gray-500 text-xs">Tessera personale — riutilizzabile ad ogni evento</p>
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Scan event picker: pick WHICH event's tickets to control ─── */}
+      {/* ─── Scan event picker: pick WHICH event to control ─── */}
       {showScanEventPicker && (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#0a0a12] border border-white/10 rounded-2xl p-5 space-y-3 max-h-[80vh] flex flex-col">
@@ -4223,7 +4802,7 @@ export default function AdminPage() {
                 <X size={18} />
               </button>
             </div>
-            <p className="text-gray-500 text-xs flex-shrink-0">Solo i biglietti di questo evento verranno accettati.</p>
+            <p className="text-gray-500 text-xs flex-shrink-0">Un solo scanner per biglietti e tessere di questo evento.</p>
             <div className="overflow-y-auto space-y-2">
               {events.filter(e => !e.archived).length === 0 && (
                 <p className="text-gray-500 text-sm text-center py-4">Nessun evento attivo</p>
@@ -4231,7 +4810,12 @@ export default function AdminPage() {
               {events.filter(e => !e.archived).map(e => (
                 <button
                   key={e.id}
-                  onClick={() => { setScanEventId(e.id); setShowScanEventPicker(false); setShowScanner(true); startScanner(); }}
+                  onClick={() => {
+                    setScanEventId(e.id);
+                    setShowScanEventPicker(false);
+                    setShowScanner(true);
+                    fetch(`/api/events/${e.id}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+                  }}
                   className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-green-500/40 hover:bg-green-500/5 transition-all text-left"
                 >
                   <div className="w-9 h-9 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0">
@@ -4267,10 +4851,16 @@ export default function AdminPage() {
               <X size={18} />
             </button>
           </div>
+          {liveCounts && (
+            <div className="flex items-center justify-center gap-4 px-4 py-2 bg-black/80 border-b border-white/10 flex-shrink-0 text-xs">
+              <span className="flex items-center gap-1.5 text-blue-400"><Ticket size={12} /> Prenotazioni: <strong className="text-white">{liveCounts.reservations}</strong></span>
+              <span className="flex items-center gap-1.5 text-purple-400"><IdCard size={12} /> Tessere: <strong className="text-white">{liveCounts.tessere}</strong></span>
+            </div>
+          )}
           <div className="relative flex-1 overflow-hidden bg-black flex items-center justify-center">
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
             <canvas ref={canvasRef} className="hidden" />
-            {!scanSuccess && !scanError && !scanLoading && (
+            {!scanSuccess && !scanError && !scanLoading && !cardScanResult && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="relative w-64 h-64 sm:w-72 sm:h-72">
                   <div className="absolute top-0 left-0 w-10 h-10 border-green-400" style={{ borderTopWidth: 3, borderLeftWidth: 3, borderTopStyle: "solid", borderLeftStyle: "solid", borderRadius: "8px 0 0 0" }} />
@@ -4291,12 +4881,18 @@ export default function AdminPage() {
               <div className="absolute inset-0 bg-black/85 flex items-center justify-center p-6">
                 <div className="bg-[#0a0a12] border border-blue-500/40 rounded-2xl p-6 w-full max-w-sm">
                   <div className="flex items-center gap-3 mb-5">
-                    <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                      <Users size={24} className="text-blue-400" />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${scanResult.isGroup ? "bg-pink-500/20" : "bg-blue-500/20"}`}>
+                      <Users size={24} className={scanResult.isGroup ? "text-pink-400" : "text-blue-400"} />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-base font-bold text-white truncate">{scanResult.name}</h3>
-                      <p className="text-xs text-gray-400 truncate">{scanResult.email}</p>
+                      <h3 className="text-base font-bold text-white truncate">{scanResult.isGroup ? `👥 ${scanResult.groupLabel}` : scanResult.name}</h3>
+                      {scanResult.isGroup ? (
+                        <p className="text-xs text-pink-400 truncate font-semibold">
+                          Entrata {(scanResult.groupCount ?? 0) + 1}{scanResult.groupMax !== null && scanResult.groupMax !== undefined ? ` / ${scanResult.groupMax}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 truncate">{scanResult.email}</p>
+                      )}
                     </div>
                   </div>
                   {/* User type badge */}
@@ -4309,16 +4905,19 @@ export default function AdminPage() {
                       }`}>{scanResult.userType}</span>
                     </div>
                   )}
-                  <div className="bg-white/5 rounded-xl p-3 mb-5 space-y-1.5">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Calendar size={14} className="text-blue-400 flex-shrink-0" />
-                      <span className="text-white font-medium truncate">{scanResult.event}</span>
+                  {!scanResult.isGroup && (
+                    <div className="bg-white/5 rounded-xl p-3 mb-5 space-y-1.5">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Calendar size={14} className="text-blue-400 flex-shrink-0" />
+                        <span className="text-white font-medium truncate">{scanResult.event}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <Ticket size={12} className="flex-shrink-0" />
+                        <span className="font-mono">{scanResult.code}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <Ticket size={12} className="flex-shrink-0" />
-                      <span className="font-mono">{scanResult.code}</span>
-                    </div>
-                  </div>
+                  )}
+                  {scanResult.isGroup && <div className="mb-5" />}
                   <div className="flex gap-3">
                     <button
                       onClick={() => { setScanResult(null); lastScannedRef.current = null; startScanner(); }}
@@ -4351,19 +4950,60 @@ export default function AdminPage() {
                   <h3 className="text-xl font-bold mb-3 text-green-400">
                     ✅ Accesso Consentito
                   </h3>
-                  <p className="text-white font-bold text-lg mb-0.5">{scanResult.name}</p>
-                  <p className="text-gray-400 text-sm mb-1">{scanResult.email}</p>
-                  {scanResult.userType && (
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold mb-1 ${
-                      scanResult.userType === "ERASMUS" ? "bg-green-500/15 text-green-400" :
-                      scanResult.userType === "UNIVERSITARIO" ? "bg-blue-500/15 text-blue-400" :
-                      "bg-purple-500/15 text-purple-400"
-                    }`}>{scanResult.userType}</span>
+                  {scanResult.isGroup ? (
+                    <>
+                      <p className="text-white font-bold text-lg mb-0.5">👥 {scanResult.groupLabel}</p>
+                      <p className="text-pink-400 text-sm font-semibold mb-6">
+                        {scanResult.groupCount}{scanResult.groupMax !== null && scanResult.groupMax !== undefined ? ` / ${scanResult.groupMax}` : ""} entrate
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-white font-bold text-lg mb-0.5">{scanResult.name}</p>
+                      <p className="text-gray-400 text-sm mb-1">{scanResult.email}</p>
+                      {scanResult.userType && (
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold mb-1 ${
+                          scanResult.userType === "ERASMUS" ? "bg-green-500/15 text-green-400" :
+                          scanResult.userType === "UNIVERSITARIO" ? "bg-blue-500/15 text-blue-400" :
+                          "bg-purple-500/15 text-purple-400"
+                        }`}>{scanResult.userType}</span>
+                      )}
+                      <p className="text-blue-400 text-sm font-medium mt-1">{scanResult.event}</p>
+                      <p className="text-gray-600 text-xs font-mono mb-6">{scanResult.code}</p>
+                    </>
                   )}
-                  <p className="text-blue-400 text-sm font-medium mt-1">{scanResult.event}</p>
-                  <p className="text-gray-600 text-xs font-mono mb-6">{scanResult.code}</p>
                   <div className="flex gap-3">
                     <button onClick={() => { setScanSuccess(false); setScanResult(null); setScanError(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
+                    <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Tessera cliente scansionata — già registrata, nessuna conferma da premere */}
+            {cardScanResult && !scanLoading && (
+              <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-6">
+                <div className="max-w-xs w-full text-center space-y-3">
+                  <div className="relative w-32 h-32 mx-auto">
+                    {cardScanResult.photo_url ? (
+                      <Image src={cardScanResult.photo_url} alt="" width={128} height={128} className="w-32 h-32 rounded-full object-cover border-4 border-white/20" />
+                    ) : (
+                      <div className={`w-32 h-32 rounded-full flex items-center justify-center ${cardScanResult.logged ? "bg-green-500/15 border-4 border-green-500/40" : "bg-yellow-500/15 border-4 border-yellow-500/40"}`}>
+                        <IdCard size={48} className={cardScanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                      </div>
+                    )}
+                  </div>
+                  <h1 className="text-xl font-bold text-white">{cardScanResult.full_name}</h1>
+                  {decodeIdType(cardScanResult.id_type).label !== "—" && (
+                    <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase bg-blue-500/15 text-blue-300 border border-blue-500/25">
+                      {decodeIdType(cardScanResult.id_type).label}
+                    </span>
+                  )}
+                  <p className={`text-sm font-medium ${cardScanResult.logged ? "text-green-400" : "text-yellow-400"}`}>
+                    {cardScanResult.logged ? "✅ Tessera — Ingresso registrato!" : "⚠️ Tessera già entrata in questo evento"}
+                  </p>
+                  <p className="text-gray-400 text-sm">Ingressi totali: <span className="text-white font-bold">{cardScanResult.visit_count}</span></p>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => { setCardScanResult(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
                     <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
                   </div>
                 </div>
@@ -4401,6 +5041,7 @@ export default function AdminPage() {
       const total = evRes.length;
       const active = evRes.filter(r => r.status === "active").length;
       const entered = evRes.filter(r => r.status === "used").length;
+      const groupEntriesCount = evRes.filter(r => r.user_email === "__group__").length;
       const cancelled = evRes.filter(r => r.status === "cancelled").length;
       const totalGuests = evRes.reduce((s, r) => s + (r.guest_count || 1), 0);
       const enteredGuests = evRes.filter(r => r.status === "used").reduce((s, r) => s + (r.guest_count || 1), 0);
@@ -4452,16 +5093,16 @@ export default function AdminPage() {
         : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
 
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
-                {statsDrilldown ? (
-                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                {statsDrilldown || tessereEntriesOpen ? (
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
-                <h3 className="font-bold text-white text-base">{statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
+                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
               <div className="flex items-center gap-2">
                 {statsDrilldown && filteredDrilldownList.length > 0 && (
@@ -4478,11 +5119,46 @@ export default function AdminPage() {
                     <Copy size={12} /> Copia nomi
                   </button>
                 )}
-                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                {tessereEntriesOpen && tessereEntries && tessereEntries.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const names = tessereEntries.map(e => e.full_name).filter(Boolean);
+                      if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                      navigator.clipboard.writeText(names.join("\n"))
+                        .then(() => toast.success(`${names.length} nomi copiati!`))
+                        .catch(() => toast.error("Errore durante la copia"));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                  >
+                    <Copy size={12} /> Copia nomi
+                  </button>
+                )}
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
               </div>
             </div>
 
-            {statsDrilldown ? (
+            {tessereEntriesOpen ? (
+              /* ── Tessera entries list ── */
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                {!tessereEntries ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Caricamento...</p>
+                ) : tessereEntries.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Nessuna entrata con tessera</p>
+                ) : tessereEntries.map((e, i) => (
+                  <div key={i} className="p-3 rounded-xl border bg-[#0a0a12] border-pink-500/15">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-white truncate">{e.full_name}</p>
+                        {e.city && <p className="text-[11px] text-gray-400 truncate">{e.city}</p>}
+                      </div>
+                      <span className="flex-shrink-0 text-[11px] text-gray-500 mt-0.5">
+                        {new Date(e.scanned_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : statsDrilldown ? (
               /* ── Detail list ── */
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
                 {fullDrilldownList.length > 0 && (
@@ -4561,6 +5237,32 @@ export default function AdminPage() {
                     <div className="h-full rounded-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
+                {statsTessereCount !== null && statsTessereCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setTessereEntriesOpen(true);
+                      if (!tessereEntries) {
+                        fetch(`/api/events/${statsEvent.id}/card-entries`)
+                          .then((r) => r.json())
+                          .then((d) => setTessereEntries(Array.isArray(d) ? d : []))
+                          .catch(() => setTessereEntries([]));
+                      }
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-pink-400" /> Entrate con tessera</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-pink-400">{statsTessereCount}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
+                )}
+                {groupEntriesCount > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><Users size={13} className="text-pink-400" /> Entrate con Codice Gruppo</span>
+                    <span className="text-sm font-bold text-pink-400">{groupEntriesCount}</span>
+                  </div>
+                )}
                 {fillRate !== null && (
                   <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
                     <div className="flex items-center justify-between mb-2">

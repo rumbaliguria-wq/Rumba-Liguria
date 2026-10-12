@@ -32,6 +32,7 @@ import {
   Link2,
   Copy,
   ChevronDown,
+  Ticket,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
@@ -126,11 +127,14 @@ const EMPTY_FORM = {
 // backend la guarda con event_id = null, como un "evento" genérico propio.
 const PRIVATE_EVENT = "__private__";
 
-export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScannerTrigger?: number }) {
+export default function CardsPanel() {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
+  const [citySearch, setCitySearch] = useState("");
+  const [showCitySection, setShowCitySection] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
 
   const [showForm, setShowForm] = useState(false);
@@ -151,6 +155,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
   // Scanner state
   const [showScanner, setShowScanner] = useState(false);
   const [scanEventId, setScanEventId] = useState("");
+  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
   const [scanResult, setScanResult] = useState<{ card: Card; visit_count: number; logged: boolean; scan: { scanned_at: string; event_id: string | null; events?: { title: string } | null } } | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -781,6 +786,7 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     setScanResult(null);
     setScanError(null);
     setScanLoading(false);
+    setLiveCounts(null);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -809,6 +815,9 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
       setScanResult({ card: data.card, visit_count: data.visit_count, logged: data.logged, scan: data.scan });
       fetchCards();
       fetchStats();
+      if (scanEventId && scanEventId !== PRIVATE_EVENT) {
+        fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+      }
     } catch {
       setScanError("Errore di connessione");
     } finally {
@@ -910,24 +919,56 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showScanner, scanEventId]);
 
-  // Opens the scanner when the unified "Scan" chooser in the admin header routes here.
-  useEffect(() => {
-    if (autoOpenScannerTrigger) setShowScanner(true);
-  }, [autoOpenScannerTrigger]);
-
   // ─── Derived ───
 
-  const filteredCards = cards.filter((c) => {
-    const matchesSearch =
-      !search.trim() ||
-      c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.email || "").toLowerCase().includes(search.toLowerCase()) ||
-      (c.id_number || "").toLowerCase().includes(search.toLowerCase()) ||
-      c.code.toLowerCase().includes(search.toLowerCase());
+  const matchesCardSearch = (c: Card) =>
+    !search.trim() ||
+    c.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.email || "").toLowerCase().includes(search.toLowerCase()) ||
+    (c.id_number || "").toLowerCase().includes(search.toLowerCase()) ||
+    c.code.toLowerCase().includes(search.toLowerCase());
+
+  const matchesCardType = (c: Card, type: string) => {
     const decoded = decodeIdType(c.id_type);
-    const matchesType = !typeFilter || decoded.preset === typeFilter;
-    return matchesSearch && matchesType;
+    return type === "SENZA_TIPO" ? !decoded.preset : decoded.preset === type;
+  };
+
+  const cardsBySearch = cards.filter(matchesCardSearch);
+  const cardTypeCount = (type: string) => cardsBySearch.filter((c) => matchesCardType(c, type)).length;
+
+  // Normaliza para agrupar sin que "sevilla", "Sevilla " y "SEVILLA" cuenten
+  // como tres ciudades distintas — se muestra con mayúscula inicial.
+  const normalizeCity = (city: string | null) => (city || "").trim().replace(/\s+/g, " ");
+  const cityKey = (city: string | null) => normalizeCity(city).toLowerCase();
+  const matchesCardCity = (c: Card) => !cityFilter || cityKey(c.city) === cityFilter;
+
+  const cardsByType = cardsBySearch.filter((c) => !typeFilter || matchesCardType(c, typeFilter));
+  const topCities = (() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const c of cardsByType) {
+      if (!normalizeCity(c.city)) continue;
+      const key = cityKey(c.city);
+      const entry = counts.get(key);
+      if (entry) entry.count += 1;
+      else counts.set(key, { label: normalizeCity(c.city), count: 1 });
+    }
+    return Array.from(counts.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.count - a.count);
+  })();
+
+  const filteredCards = cards.filter((c) => {
+    const matchesType = !typeFilter || matchesCardType(c, typeFilter);
+    return matchesCardSearch(c) && matchesType && matchesCardCity(c);
   });
+
+  const copyCardNames = () => {
+    const names = filteredCards.map((c) => c.full_name).filter(Boolean);
+    if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+    navigator.clipboard.writeText(names.join("\n"))
+      .then(() => toast.success(`${names.length} nomi copiati!`))
+      .catch(() => toast.error("Errore durante la copia"));
+  };
 
   const manualFilteredCards = cards.filter((c) => {
     if (!c.active) return false;
@@ -1025,6 +1066,95 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
           Nuova Tessera
         </button>
       </div>
+
+      {/* Type breakdown — clickable, plus copy names of whatever's filtered */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-3">
+        {[
+          { type: "ERASMUS", label: "Erasmus", color: "text-green-400", border: "border-green-500/10" },
+          { type: "UNIVERSITARIO", label: "Universitario", color: "text-blue-400", border: "border-blue-500/10" },
+          { type: "VIP", label: "VIP", color: "text-yellow-400", border: "border-yellow-500/10" },
+          { type: "CLIENTE", label: "Cliente", color: "text-pink-400", border: "border-pink-500/10" },
+          { type: "OTRO", label: "Altro", color: "text-purple-400", border: "border-purple-500/10" },
+          { type: "SENZA_TIPO", label: "Senza tipo", color: "text-gray-400", border: "border-white/10" },
+        ].map(({ type, label, color, border }) => (
+          <button
+            key={type}
+            onClick={() => setTypeFilter((prev) => (prev === type ? "" : type))}
+            className={`text-left p-2.5 rounded-xl bg-[#0a0a12] border transition-all ${typeFilter === type ? "border-white/40 ring-1 ring-white/20" : border} hover:border-white/25`}
+          >
+            <p className={`text-base sm:text-lg font-bold ${color}`}>{cardTypeCount(type)}</p>
+            <p className="text-[9px] text-gray-500">{label}</p>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+        <p className="text-[11px] text-gray-500">
+          {!typeFilter ? "Tutti i tipi" : `Filtrato: ${typeFilter === "SENZA_TIPO" ? "Senza tipo" : typeFilter === "OTRO" ? "Altro" : decodeIdType(typeFilter).label}`}
+          {!!typeFilter && (
+            <button onClick={() => setTypeFilter("")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+          )}
+          {!!cityFilter && (
+            <>
+              <span className="mx-1.5 text-gray-700">·</span>
+              {topCities.find((c) => c.key === cityFilter)?.label || cityFilter}
+              <button onClick={() => setCityFilter("")} className="ml-2 text-blue-400 hover:underline">Rimuovi</button>
+            </>
+          )}
+        </p>
+        <button
+          onClick={copyCardNames}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+        >
+          <Copy size={12} /> Copia nomi
+        </button>
+      </div>
+
+      {/* City breakdown — collapsible, with a free-text search for cities not in the top list */}
+      <button
+        onClick={() => setShowCitySection(!showCitySection)}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+      >
+        <span className="flex items-center gap-2 text-sm">
+          <MapPin size={16} className="text-orange-400" />
+          Città {cityFilter && <span className="text-orange-400">— {topCities.find((c) => c.key === cityFilter)?.label || cityFilter}</span>}
+        </span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${showCitySection ? "rotate-180" : ""}`} />
+      </button>
+      {showCitySection && (
+        <div className="p-4 rounded-xl bg-white/5 border border-orange-500/20 mb-4">
+          {topCities.length === 0 ? (
+            <p className="text-xs text-gray-500">Nessuna tessera con città indicata</p>
+          ) : (
+            <>
+              <div className="relative mb-3">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="text"
+                  value={citySearch}
+                  onChange={(e) => setCitySearch(e.target.value)}
+                  placeholder="Cerca un'altra città..."
+                  className="w-full pl-8 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-orange-500/40 transition-all"
+                />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+                {topCities
+                  .filter((c) => !citySearch.trim() || c.label.toLowerCase().includes(citySearch.toLowerCase()))
+                  .slice(0, citySearch.trim() ? undefined : 9)
+                  .map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => setCityFilter((prev) => (prev === c.key ? "" : c.key))}
+                      className={`text-left p-2.5 rounded-xl bg-[#0a0a12] border transition-all ${cityFilter === c.key ? "border-orange-500/50 ring-1 ring-orange-500/20" : "border-white/10"} hover:border-white/25`}
+                    >
+                      <p className="text-base sm:text-lg font-bold text-orange-400">{c.count}</p>
+                      <p className="text-[9px] text-gray-500 truncate">{c.label}</p>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Collaboratori esterni */}
       <button
@@ -1834,7 +1964,14 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
             <label className="text-xs text-gray-400 mb-1 block">Evento (obbligatorio per registrare l&apos;ingresso)</label>
             <select
               value={scanEventId}
-              onChange={(e) => setScanEventId(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setScanEventId(val);
+                setLiveCounts(null);
+                if (val && val !== PRIVATE_EVENT) {
+                  fetch(`/api/events/${val}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+                }
+              }}
               className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
             >
               <option value="" className="bg-[#0a0a12] text-white">Seleziona un evento...</option>
@@ -1844,6 +1981,12 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
               ))}
             </select>
           </div>
+          {liveCounts && (
+            <div className="flex items-center justify-center gap-4 px-4 py-2 bg-black/80 border-b border-white/10 flex-shrink-0 text-xs">
+              <span className="flex items-center gap-1.5 text-blue-400"><Ticket size={12} /> Prenotazioni: <strong className="text-white">{liveCounts.reservations}</strong></span>
+              <span className="flex items-center gap-1.5 text-purple-400"><IdCard size={12} /> Tessere: <strong className="text-white">{liveCounts.tessere}</strong></span>
+            </div>
+          )}
 
           <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
             {!scanEventId ? (
@@ -1886,14 +2029,24 @@ export default function CardsPanel({ autoOpenScannerTrigger }: { autoOpenScanner
                 {scanResult && (
                   <div className="absolute inset-0 bg-black/90 flex items-center justify-center p-4 animate-fade-in">
                     <div className="max-w-xs w-full text-center space-y-4">
-                      <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center animate-scale-in ${
-                        scanResult.logged ? "bg-green-500/15 border border-green-500/40" : "bg-yellow-500/15 border border-yellow-500/40"
-                      }`}>
-                        <CheckCircle size={38} className={scanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                      <div className="relative w-44 h-44 mx-auto animate-scale-in">
+                        {scanResult.card.photo_url ? (
+                          <Image src={scanResult.card.photo_url} alt="" width={176} height={176} className="w-44 h-44 rounded-full object-cover border-4 border-white/20" />
+                        ) : (
+                          <div className={`w-44 h-44 rounded-full flex items-center justify-center ${
+                            scanResult.logged ? "bg-green-500/15 border-4 border-green-500/40" : "bg-yellow-500/15 border-4 border-yellow-500/40"
+                          }`}>
+                            <CheckCircle size={64} className={scanResult.logged ? "text-green-400" : "text-yellow-400"} />
+                          </div>
+                        )}
+                        {scanResult.card.photo_url && (
+                          <div className={`absolute bottom-1 right-1 w-11 h-11 rounded-full flex items-center justify-center border-[3px] border-black ${
+                            scanResult.logged ? "bg-green-500" : "bg-yellow-500"
+                          }`}>
+                            <CheckCircle size={22} className="text-white" />
+                          </div>
+                        )}
                       </div>
-                      {scanResult.card.photo_url ? (
-                        <Image src={scanResult.card.photo_url} alt="" width={64} height={64} className="w-16 h-16 rounded-full object-cover mx-auto border border-white/20" />
-                      ) : null}
                       <h1 className="text-2xl font-bold text-white">{scanResult.card.full_name}</h1>
                       {decodeIdType(scanResult.card.id_type).label !== "—" && (
                         <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase bg-blue-500/15 text-blue-300 border border-blue-500/25">
