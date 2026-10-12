@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getStripe, getSiteOrigin } from "@/lib/stripe";
 import { fulfillItems, priceCart, type CartItem } from "@/lib/payments";
+import { lineTotalCents } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 
@@ -44,15 +45,18 @@ export async function POST(req: NextRequest) {
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       customer_email: email,
+      // El importe ya viene con el descuento del 2x1 aplicado (si corresponde)
+      // metido en una sola línea — Stripe no sabe nada de la promo, solo ve
+      // el total final a cobrar por ese evento.
       line_items: priced.lines
         .filter((l) => l.unit_cents > 0)
         .map((l) => ({
-          quantity: l.guest_count,
+          quantity: 1,
           price_data: {
             currency: "eur",
-            unit_amount: l.unit_cents,
+            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo2x1),
             product_data: {
-              name: l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title,
+              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo2x1 ? " (promo 2x1)" : ""}`,
             },
           },
         })),

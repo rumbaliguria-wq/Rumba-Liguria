@@ -11,7 +11,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     // Encode ticket types + sale config into details field
     const detailsWithTypes = encodeTicketTypes(body.details || "", body.ticket_types || []);
-    const detailsWithSale = encodeSaleConfig(detailsWithTypes, body.sale_start, body.sale_end, body.archive_at);
+    const detailsWithSale = encodeSaleConfig(detailsWithTypes, body.sale_start, body.sale_end, body.archive_at, body.promo_2x1);
 
     const { data, error } = await supabase
       .from("events")
@@ -52,7 +52,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     // Decode sale config back for the response
     const decoded = decodeSaleConfig(data.details || "");
-    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at });
+    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_2x1: decoded.promo_2x1 });
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

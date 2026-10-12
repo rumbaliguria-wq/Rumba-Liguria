@@ -42,6 +42,7 @@ export async function GET() {
       sale_start: decoded.sale_start,
       sale_end: decoded.sale_end,
       archive_at: decoded.archive_at,
+      promo_2x1: decoded.promo_2x1,
       reservations: undefined,
       reservation_total: reservations.length,
       reservation_used: reservations.filter((r) => r.status === "used").length,

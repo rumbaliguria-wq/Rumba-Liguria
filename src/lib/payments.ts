@@ -3,7 +3,8 @@ import { getServiceClient } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 import { decodeTicketTypes } from "@/lib/ticketTypes";
-import { getUnitPriceCents } from "@/lib/pricing";
+import { getUnitPriceCents, lineTotalCents } from "@/lib/pricing";
+import { decodeSaleConfig } from "@/lib/saleConfig";
 
 export interface CartItem {
   event_id: string;
@@ -15,6 +16,7 @@ export interface CartItem {
 export interface PricedItem extends CartItem {
   unit_cents: number;
   event_title: string;
+  promo2x1: boolean;
 }
 
 export interface TicketResult {
@@ -79,6 +81,7 @@ export async function priceCart(
     const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email, unitCents);
     if (bookingError) return { ok: false, error: `${event.title}: ${bookingError}` };
 
+    const promo2x1 = decodeSaleConfig(event.details || "").promo_2x1;
     lines.push({
       event_id: event.id,
       ticket_type: raw.ticket_type || undefined,
@@ -86,10 +89,11 @@ export async function priceCart(
       referral: raw.referral || undefined,
       unit_cents: unitCents,
       event_title: event.title,
+      promo2x1,
     });
   }
 
-  const totalCents = lines.reduce((s, l) => s + l.unit_cents * l.guest_count, 0);
+  const totalCents = lines.reduce((s, l) => s + lineTotalCents(l.unit_cents, l.guest_count, l.promo2x1), 0);
   return { ok: true, lines, totalCents };
 }
 
@@ -137,7 +141,7 @@ export async function fulfillItems(
         event_id: line.event_id,
         event_title: line.event_title,
         reason: err instanceof Error ? err.message : "Errore",
-        refunded_cents: line.unit_cents * line.guest_count,
+        refunded_cents: lineTotalCents(line.unit_cents, line.guest_count, line.promo2x1),
       });
     }
   }
