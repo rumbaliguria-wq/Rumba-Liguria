@@ -126,8 +126,11 @@ async function drawPlainQRCanvas(url: string, label?: string): Promise<HTMLCanva
     ctx.arcTo(x, y, x + boxWidth, y, radius);
     ctx.closePath();
     ctx.fill();
+    // Arranca grande y recién achica si no entra — así una sigla corta
+    // (p.ej. "E.S.N") se ve bien grande, no se queda chiquita por un tamaño
+    // fijo pensado para nombres largos.
     const maxTextWidth = boxWidth - 16;
-    let fontSize = Math.floor(boxHeight * 0.5);
+    let fontSize = Math.floor(boxHeight * 0.7);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `700 ${fontSize}px Arial`;
