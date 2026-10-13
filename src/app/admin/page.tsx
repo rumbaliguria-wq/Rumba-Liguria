@@ -299,6 +299,8 @@ export default function AdminPage() {
   const [cashSaleEmail, setCashSaleEmail] = useState("");
   const [cashSaleGenerating, setCashSaleGenerating] = useState(false);
   const [cashSaleCodes, setCashSaleCodes] = useState<{ code: string }[]>([]);
+  const [cashSaleMethod, setCashSaleMethod] = useState<"contanti" | "carta">("contanti");
+  const [customPaymentLink, setCustomPaymentLink] = useState<string | null>(null);
   const [cashSaleDownloadingAll, setCashSaleDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
@@ -1298,6 +1300,36 @@ export default function AdminPage() {
         setCashSaleCodes(d.codes || []);
         toast.success(`${count} ${count === 1 ? "biglietto generato" : "biglietti generati"} per ${price}€!`);
         fetchReservationsRef.current?.();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setCashSaleGenerating(false); }
+  };
+
+  const handleGenerateCustomLink = async () => {
+    if (!cashSaleEventId) { toast.error("Seleziona un evento"); return; }
+    const count = Math.max(1, parseInt(cashSaleCountInput) || 1);
+    setCashSaleCountInput(String(count));
+    const price = parseFloat(cashSalePrice.replace(",", "."));
+    if (!Number.isFinite(price) || price <= 0) { toast.error("Inserisci il prezzo totale concordato"); return; }
+    if (!cashSaleEmail.trim()) { toast.error("L'email del cliente è obbligatoria per il link di pagamento"); return; }
+    setCashSaleGenerating(true);
+    setCustomPaymentLink(null);
+    try {
+      const res = await fetch("/api/admin/custom-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_id: cashSaleEventId,
+          guest_count: count,
+          total_price: price,
+          customer_name: cashSaleName.trim() || undefined,
+          customer_email: cashSaleEmail.trim(),
+        }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setCustomPaymentLink(d.url);
+        toast.success("Link di pagamento generato!");
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setCashSaleGenerating(false); }
@@ -2463,9 +2495,32 @@ export default function AdminPage() {
             {showCashSaleSection && (
               <div className="p-4 rounded-xl bg-white/5 border border-green-500/20 mb-4">
                 <p className="text-[11px] text-gray-500 mb-3">
-                  Per quando vendi tu stesso un biglietto in contanti (es. con uno sconto che hai negoziato di persona).
-                  Genera biglietti veri — contano nel limite di posti dell&apos;evento — senza passare da nessun pagamento online.
+                  Per quando vendi tu stesso un biglietto (es. con uno sconto che hai negoziato di persona) — in contanti
+                  di persona, o con un link di pagamento se paga con carta a distanza. Genera biglietti veri — contano
+                  nel limite di posti dell&apos;evento.
                 </p>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => { setCashSaleMethod("contanti"); setCustomPaymentLink(null); }}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      cashSaleMethod === "contanti"
+                        ? "bg-green-500/15 border-green-500/40 text-green-400"
+                        : "bg-white/5 border-white/10 text-gray-400 hover:border-white/20"
+                    }`}
+                  >
+                    💶 Contanti
+                  </button>
+                  <button
+                    onClick={() => { setCashSaleMethod("carta"); setCashSaleCodes([]); }}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      cashSaleMethod === "carta"
+                        ? "bg-blue-500/15 border-blue-500/40 text-blue-400"
+                        : "bg-white/5 border-white/10 text-gray-400 hover:border-white/20"
+                    }`}
+                  >
+                    💳 Carta (link online)
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                   <div className="col-span-2 sm:col-span-1">
                     <label className="text-xs text-gray-400 mb-1 block">Evento</label>
@@ -2485,10 +2540,13 @@ export default function AdminPage() {
                     <input
                       type="number"
                       min={1}
-                      max={20}
+                      max={cashSaleMethod === "carta" ? 500 : 20}
                       value={cashSaleCountInput}
                       onChange={(e) => setCashSaleCountInput(e.target.value)}
-                      onBlur={() => setCashSaleCountInput(String(Math.max(1, Math.min(20, parseInt(cashSaleCountInput) || 1))))}
+                      onBlur={() => {
+                        const max = cashSaleMethod === "carta" ? 500 : 20;
+                        setCashSaleCountInput(String(Math.max(1, Math.min(max, parseInt(cashSaleCountInput) || 1))));
+                      }}
                       className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-center text-sm focus:outline-none [color-scheme:dark]"
                     />
                   </div>
@@ -2516,7 +2574,9 @@ export default function AdminPage() {
                 </div>
                 <div className="flex items-end gap-3 mb-1">
                   <div className="flex-1">
-                    <label className="text-xs text-gray-400 mb-1 block">Email cliente (opzionale, per mandargli anche il biglietto via email)</label>
+                    <label className="text-xs text-gray-400 mb-1 block">
+                      Email cliente {cashSaleMethod === "carta" ? "(obbligatoria, per mandargli il link e poi il biglietto)" : "(opzionale, per mandargli anche il biglietto via email)"}
+                    </label>
                     <input
                       type="email"
                       value={cashSaleEmail}
@@ -2525,14 +2585,50 @@ export default function AdminPage() {
                       className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none [color-scheme:dark]"
                     />
                   </div>
-                  <button
-                    onClick={handleGenerateCashSale}
-                    disabled={cashSaleGenerating}
-                    className="px-4 py-2.5 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-500 transition-all disabled:opacity-50 flex-shrink-0"
-                  >
-                    {cashSaleGenerating ? "..." : "Vendi e genera"}
-                  </button>
+                  {cashSaleMethod === "carta" ? (
+                    <button
+                      onClick={handleGenerateCustomLink}
+                      disabled={cashSaleGenerating}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-500 transition-all disabled:opacity-50 flex-shrink-0"
+                    >
+                      {cashSaleGenerating ? "..." : "Genera link di pagamento"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleGenerateCashSale}
+                      disabled={cashSaleGenerating}
+                      className="px-4 py-2.5 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-500 transition-all disabled:opacity-50 flex-shrink-0"
+                    >
+                      {cashSaleGenerating ? "..." : "Vendi e genera"}
+                    </button>
+                  )}
                 </div>
+
+                {customPaymentLink && (
+                  <div className="mt-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/25 space-y-2">
+                    <p className="text-xs text-blue-300 font-medium">✅ Link pronto — mandalo al cliente:</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={customPaymentLink}
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                        className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-mono"
+                      />
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(customPaymentLink); toast.success("Link copiato!"); }}
+                        className="px-3 py-2 rounded-lg bg-white/10 text-white text-xs font-medium hover:bg-white/20 transition-all flex-shrink-0"
+                      >
+                        Copia
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(customPaymentLink)}`, "_blank")}
+                      className="w-full py-2 rounded-lg bg-green-600/20 text-green-400 text-xs font-medium hover:bg-green-600/30 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <MessageCircle size={13} /> Condividi su WhatsApp
+                    </button>
+                  </div>
+                )}
 
                 {cashSaleCodes.length > 0 && (
                   <div className="mt-3">

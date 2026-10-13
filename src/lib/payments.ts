@@ -17,6 +17,11 @@ export interface PricedItem extends CartItem {
   unit_cents: number;
   event_title: string;
   promo: PromoConfig | null;
+  // Link de pago personalizado generado por el admin (venta de grupo
+  // negociada): igual que "Vendita in Contanti", no pasa por las reglas de
+  // venta pública (cupo por persona, ventana de venta, etc.) — ya lo decidió
+  // el admin a mano.
+  admin_override?: boolean;
 }
 
 export interface TicketResult {
@@ -120,8 +125,10 @@ export async function fulfillItems(
         .select("title, max_tickets, max_per_person, event_date_iso, details")
         .eq("id", line.event_id)
         .single();
-      const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents);
-      if (bookingError) throw new Error(bookingError);
+      if (!line.admin_override) {
+        const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents);
+        if (bookingError) throw new Error(bookingError);
+      }
 
       const rows = await createReservationsAndNotify({
         supabase,
