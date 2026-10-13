@@ -173,6 +173,41 @@ export function qrTicketHtml(opts: {
 </html>`;
 }
 
+export function rentalPaymentHtml(opts: {
+  itemName: string;
+  customerName?: string;
+  amountCents: number;
+  invoiceUrl?: string | null;
+}) {
+  const amount = (opts.amountCents / 100).toFixed(2).replace(".", ",");
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#000;font-family:sans-serif;color:#fff;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain"
+        width="64" height="64" style="border-radius:50%;border:2px solid #3b82f6;" alt="Rumba Liguria" />
+      <h1 style="color:#3b82f6;font-size:22px;margin:12px 0 4px;">Pagamento confermato</h1>
+    </div>
+    <div style="background:#0a0a12;border:1px solid #1e3a5f;border-radius:16px;padding:24px;text-align:center;">
+      ${opts.customerName ? `<p style="color:#9ca3af;margin:0 0 4px;">Ciao ${opts.customerName},</p>` : ""}
+      <p style="color:#d1d5db;font-size:15px;line-height:1.6;margin:0 0 16px;">Abbiamo ricevuto il tuo pagamento per il noleggio:</p>
+      <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">${opts.itemName}</h2>
+      <p style="color:#4ade80;font-size:24px;font-weight:bold;margin:0 0 20px;">€ ${amount}</p>
+      ${opts.invoiceUrl ? `
+      <a href="${opts.invoiceUrl}" style="display:block;background:#1f2937;border:1px solid #374151;color:#e5e7eb;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;">
+        📄 Scarica la fattura
+      </a>
+      ` : ""}
+    </div>
+    <p style="text-align:center;color:#4b5563;font-size:12px;margin-top:20px;">Grazie per aver scelto Rumba Liguria.</p>
+  </div>
+</body>
+</html>`;
+}
+
 const CARD_DEACTIVATED_TEXT = {
   it: {
     subject: "La tua tessera Rumba Liguria è stata disattivata",

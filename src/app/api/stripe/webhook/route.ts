@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripe, getSiteOrigin } from "@/lib/stripe";
 import { getServiceClient } from "@/lib/supabase";
-import { fulfillPaidSession } from "@/lib/payments";
+import { fulfillPaidSession, fulfillRentalSession } from "@/lib/payments";
 
 export const runtime = "nodejs";
 
@@ -22,7 +22,11 @@ export async function POST(req: NextRequest) {
   try {
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object as Stripe.Checkout.Session;
-      await fulfillPaidSession(session.id, getSiteOrigin(req));
+      if (session.metadata?.kind === "rental") {
+        await fulfillRentalSession(session.id);
+      } else {
+        await fulfillPaidSession(session.id, getSiteOrigin(req));
+      }
     } else if (event.type === "checkout.session.expired") {
       const session = event.data.object as Stripe.Checkout.Session;
       await getServiceClient()

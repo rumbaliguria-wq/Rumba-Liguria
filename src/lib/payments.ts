@@ -5,6 +5,7 @@ import { createReservationsAndNotify, validateBookingRules } from "@/lib/reserva
 import { decodeTicketTypes } from "@/lib/ticketTypes";
 import { getUnitPriceCents, lineTotalCents, type PromoConfig } from "@/lib/pricing";
 import { decodeSaleConfig } from "@/lib/saleConfig";
+import { sendEmail, rentalPaymentHtml } from "@/lib/email";
 
 export interface CartItem {
   event_id: string;
@@ -213,4 +214,37 @@ export async function fulfillPaidSession(sessionId: string, origin: string): Pro
     .eq("id", claimed.id);
 
   return { status, result };
+}
+
+// Link de pago para un noleggio (alquiler de un equipo): no genera entradas
+// ni toca la tabla "payments" — Stripe ya es el registro del cobro. Solo
+// manda un email simple con el link de la factura. La idempotencia (no
+// mandar el correo dos veces si el webhook y la página de éxito llaman a la
+// vez) se guarda en los propios metadata de la sesión de Stripe.
+export async function fulfillRentalSession(sessionId: string): Promise<{ status: "unpaid" | "paid" }> {
+  const stripe = getStripe();
+  const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["invoice"] });
+  if (session.payment_status !== "paid") return { status: "unpaid" };
+  if (session.metadata?.email_sent === "true") return { status: "paid" };
+
+  const invoice = session.invoice && typeof session.invoice !== "string" ? session.invoice : null;
+  const email = session.customer_details?.email || session.customer_email;
+  if (email) {
+    await sendEmail({
+      to: email,
+      subject: `✅ Pagamento confermato — Noleggio ${session.metadata?.item_name || "attrezzatura"}`,
+      html: rentalPaymentHtml({
+        itemName: session.metadata?.item_name || "Attrezzatura",
+        customerName: session.metadata?.customer_name || undefined,
+        amountCents: session.amount_total || 0,
+        invoiceUrl: invoice?.hosted_invoice_url || null,
+      }),
+    }).catch(() => {/* ignore email errors */});
+  }
+
+  await stripe.checkout.sessions.update(sessionId, {
+    metadata: { ...session.metadata, email_sent: "true" },
+  });
+
+  return { status: "paid" };
 }

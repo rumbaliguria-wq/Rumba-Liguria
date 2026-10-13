@@ -207,6 +207,12 @@ export default function AdminPage() {
   const [rentalForm, setRentalForm] = useState<Partial<RentalItem> & { photosUploading?: boolean }>({ name: "", description: "", price: "", duration: "", photos: [], contact_phone: "", contact_email: "", available: true });
   const [editingRental, setEditingRental] = useState<RentalItem | null>(null);
   const [showRentalForm, setShowRentalForm] = useState(false);
+  const [rentalPaymentItem, setRentalPaymentItem] = useState<RentalItem | null>(null);
+  const [rentalPaymentPrice, setRentalPaymentPrice] = useState("");
+  const [rentalPaymentCustomerName, setRentalPaymentCustomerName] = useState("");
+  const [rentalPaymentEmail, setRentalPaymentEmail] = useState("");
+  const [rentalPaymentGenerating, setRentalPaymentGenerating] = useState(false);
+  const [rentalPaymentLink, setRentalPaymentLink] = useState<string | null>(null);
   const [rentalSaving, setRentalSaving] = useState(false);
   const [editSectionName, setEditSectionName] = useState(false);
   const [editButtonName, setEditButtonName] = useState(false);
@@ -1333,6 +1339,42 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setCashSaleGenerating(false); }
+  };
+
+  const openRentalPaymentForm = (item: RentalItem) => {
+    setRentalPaymentItem(item);
+    const guessed = item.price?.match(/[\d.,]+/)?.[0]?.replace(",", ".") || "";
+    setRentalPaymentPrice(guessed);
+    setRentalPaymentCustomerName("");
+    setRentalPaymentEmail("");
+    setRentalPaymentLink(null);
+  };
+
+  const handleGenerateRentalPaymentLink = async () => {
+    if (!rentalPaymentItem) return;
+    const price = parseFloat(rentalPaymentPrice.replace(",", "."));
+    if (!Number.isFinite(price) || price <= 0) { toast.error("Inserisci il prezzo concordato"); return; }
+    if (!rentalPaymentEmail.trim()) { toast.error("L'email del cliente è obbligatoria per il link di pagamento"); return; }
+    setRentalPaymentGenerating(true);
+    setRentalPaymentLink(null);
+    try {
+      const res = await fetch("/api/admin/rental-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_name: rentalPaymentItem.name,
+          total_price: price,
+          customer_name: rentalPaymentCustomerName.trim() || undefined,
+          customer_email: rentalPaymentEmail.trim(),
+        }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setRentalPaymentLink(d.url);
+        toast.success("Link di pagamento generato!");
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setRentalPaymentGenerating(false); }
   };
 
   const handleDownloadOneCashSale = async (code: string) => {
@@ -4744,6 +4786,7 @@ export default function AdminPage() {
                               </div>
                             </div>
                             <div className="flex flex-col gap-1.5 flex-shrink-0">
+                              <button onClick={() => (rentalPaymentItem?.id === item.id ? setRentalPaymentItem(null) : openRentalPaymentForm(item))} className={`p-1.5 rounded-lg transition-all active:scale-95 ${rentalPaymentItem?.id === item.id ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10"}`} title="Link di pagamento"><CreditCard size={13} /></button>
                               <button onClick={() => { setEditingRental(item); setRentalForm({ ...item }); setShowRentalForm(true); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all active:scale-95" title="Modifica"><Edit3 size={13} /></button>
                               <button onClick={() => handleArchiveRental(item)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-yellow-400 hover:bg-yellow-500/10 transition-all active:scale-95" title="Archivia"><Archive size={13} /></button>
                               <button onClick={() => handleDeleteRental(item.id)} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95" title="Elimina"><Trash2 size={13} /></button>
@@ -4752,6 +4795,39 @@ export default function AdminPage() {
                           {item.photos.length > 1 && (
                             <div className="flex gap-1.5 mt-2 overflow-x-auto">
                               {item.photos.slice(1).map((url, i) => <Image key={i} src={url} alt="" width={40} height={40} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />)}
+                            </div>
+                          )}
+                          {rentalPaymentItem?.id === item.id && (
+                            <div className="mt-3 p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-2.5">
+                              <p className="text-xs font-semibold text-blue-400 flex items-center gap-1.5"><CreditCard size={13} /> Link di pagamento — {item.name}</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-gray-500 mb-1 block">Prezzo concordato (€)</label>
+                                  <input value={rentalPaymentPrice} onChange={e => setRentalPaymentPrice(e.target.value)} placeholder="50" inputMode="decimal" className="w-full px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 mb-1 block">Nome cliente</label>
+                                  <input value={rentalPaymentCustomerName} onChange={e => setRentalPaymentCustomerName(e.target.value)} placeholder="es. Disco XYZ" className="w-full px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 mb-1 block">Email cliente *</label>
+                                  <input value={rentalPaymentEmail} onChange={e => setRentalPaymentEmail(e.target.value)} placeholder="mario@email.com" className="w-full px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40" />
+                                </div>
+                              </div>
+                              <button onClick={handleGenerateRentalPaymentLink} disabled={rentalPaymentGenerating} className="w-full py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 disabled:opacity-40 transition-all active:scale-95">
+                                {rentalPaymentGenerating ? "Generazione..." : "Genera link di pagamento"}
+                              </button>
+                              {rentalPaymentLink && (
+                                <div className="space-y-2 pt-1">
+                                  <div className="flex items-center gap-2">
+                                    <input readOnly value={rentalPaymentLink} className="flex-1 px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs truncate" />
+                                    <button onClick={() => { navigator.clipboard.writeText(rentalPaymentLink); toast.success("Link copiato!"); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all active:scale-95" title="Copia"><Copy size={14} /></button>
+                                  </div>
+                                  <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(rentalPaymentLink)}`, "_blank")} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-600/90 text-white text-xs font-medium hover:bg-green-500 transition-all active:scale-95">
+                                    <MessageCircle size={14} /> Condividi su WhatsApp
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
