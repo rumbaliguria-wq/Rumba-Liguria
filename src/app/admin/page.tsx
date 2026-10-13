@@ -5522,9 +5522,31 @@ export default function AdminPage() {
                           </span>
                         </div>
                       </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium mt-0.5 ${r.status === "used" ? "bg-green-500/15 text-green-400" : r.status === "cancelled" ? "bg-gray-500/10 text-gray-400" : "bg-blue-500/10 text-blue-400"}`}>
-                        {r.status === "used" ? "Entrato" : r.status === "cancelled" ? "Cancellata" : "Attiva"}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${r.status === "used" ? "bg-green-500/15 text-green-400" : r.status === "cancelled" ? "bg-gray-500/10 text-gray-400" : "bg-blue-500/10 text-blue-400"}`}>
+                          {r.status === "used" ? "Entrato" : r.status === "cancelled" ? "Cancellata" : "Attiva"}
+                        </span>
+                        {r.status !== "cancelled" && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm("Eliminare questa prenotazione?")) return;
+                              const res = await fetch(`/api/reservations/${r.id}`, { method: "DELETE" });
+                              if (res.ok) {
+                                toast.success("Prenotazione eliminata!");
+                                setReservations(prev => prev.map(x => x.id === r.id ? { ...x, status: "cancelled" } : x));
+                                setStatsDrilldown(prev => prev ? { ...prev, list: prev.list.map(x => x.id === r.id ? { ...x, status: "cancelled" } : x) } : prev);
+                              } else {
+                                const data = await res.json().catch(() => ({}));
+                                toast.error(data.error || "Errore eliminazione");
+                              }
+                            }}
+                            className="p-1 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95"
+                            title="Elimina prenotazione"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   );
