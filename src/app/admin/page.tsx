@@ -5357,7 +5357,7 @@ export default function AdminPage() {
       const total = evRes.length;
       const active = evRes.filter(r => r.status === "active").length;
       const entered = evRes.filter(r => r.status === "used").length;
-      const groupEntriesCount = evRes.filter(r => r.user_email === "__group__").length;
+      const groupEntriesCount = evRes.filter(r => r.user_email === "__group__" && r.status !== "cancelled").length;
       const cancelled = evRes.filter(r => r.status === "cancelled").length;
       const totalGuests = evRes.reduce((s, r) => s + (r.guest_count || 1), 0);
       const enteredGuests = evRes.filter(r => r.status === "used").reduce((s, r) => s + (r.guest_count || 1), 0);
