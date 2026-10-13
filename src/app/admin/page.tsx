@@ -97,10 +97,47 @@ async function drawCashQRCanvas(url: string): Promise<HTMLCanvasElement> {
 
 // QR liso en buena resolución — se usa para el Codice Gruppo, donde antes
 // solo había un QR chiquito en pantalla que había que fotografiar (y perdía
-// calidad al reenviarse hasta volverse ilegible).
-async function drawPlainQRCanvas(url: string): Promise<HTMLCanvasElement> {
+// calidad al reenviarse hasta volverse ilegible). Si se pasa un nombre
+// (p.ej. "Facultad de Abogados"), se imprime en una placa blanca redondeada
+// sobre el centro del QR. IMPORTANTE: probado con un decodificador real —
+// una franja que tapa TODO el ancho rompe la lectura aunque sea angosta
+// (se pierde el margen de los costados); quedándose en un 65% del ancho,
+// centrada, el QR sigue leyendo perfecto.
+async function drawPlainQRCanvas(url: string, label?: string): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   await QRCode.toCanvas(canvas, url, { width: 500, margin: 2, errorCorrectionLevel: "H" });
+  const text = label?.trim();
+  if (text) {
+    const ctx = canvas.getContext("2d")!;
+    const upper = text.toUpperCase();
+    const boxWidth = canvas.width * 0.65;
+    const boxHeight = 50;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const x = cx - boxWidth / 2;
+    const y = cy - boxHeight / 2;
+    const radius = 10;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + boxWidth, y, x + boxWidth, y + boxHeight, radius);
+    ctx.arcTo(x + boxWidth, y + boxHeight, x, y + boxHeight, radius);
+    ctx.arcTo(x, y + boxHeight, x, y, radius);
+    ctx.arcTo(x, y, x + boxWidth, y, radius);
+    ctx.closePath();
+    ctx.fill();
+    const maxTextWidth = boxWidth - 16;
+    let fontSize = Math.floor(boxHeight * 0.5);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `700 ${fontSize}px Arial`;
+    while (ctx.measureText(upper).width > maxTextWidth && fontSize > 8) {
+      fontSize -= 1;
+      ctx.font = `700 ${fontSize}px Arial`;
+    }
+    ctx.fillStyle = "#2563eb";
+    ctx.fillText(upper, cx, cy + 1);
+  }
   return canvas;
 }
 
@@ -3081,7 +3118,7 @@ export default function AdminPage() {
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={async () => {
-                                    const canvas = await drawPlainQRCanvas(url);
+                                    const canvas = await drawPlainQRCanvas(url, pass.label || undefined);
                                     await shareOrDownloadCanvas(canvas, `gruppo-${pass.code}.png`, `QR Gruppo ${pass.label || ""}`);
                                   }}
                                   className="px-2.5 py-1.5 rounded-lg bg-pink-500/20 text-pink-400 text-[11px] font-semibold hover:bg-pink-500/30 flex items-center gap-1.5 flex-shrink-0"
