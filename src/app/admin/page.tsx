@@ -110,8 +110,10 @@ async function drawPlainQRCanvas(url: string, label?: string): Promise<HTMLCanva
   if (text) {
     const ctx = canvas.getContext("2d")!;
     const upper = text.toUpperCase();
+    // Probado decodificando QRs reales: hasta 140px (28% del alto) sigue
+    // leyendo bien, 160px ya rompe la lectura — se deja 120px de margen.
     const boxWidth = canvas.width * 0.65;
-    const boxHeight = 50;
+    const boxHeight = 120;
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
     const x = cx - boxWidth / 2;
