@@ -27,6 +27,7 @@ export interface Event {
   archive_at?: string;
   promo_group?: number;
   promo_free?: number;
+  unlisted?: boolean;
   ticket_types?: { name: string; color: string; price?: number }[];
   created_at: string;
   reservation_total?: number;

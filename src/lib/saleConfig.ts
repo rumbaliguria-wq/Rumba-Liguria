@@ -10,16 +10,18 @@ export function encodeSaleConfig(
   archive_at?: string | null,
   promo_group?: number | null,
   promo_free?: number | null,
+  unlisted?: boolean | null,
 ): string {
   // Strip any existing sale config
   const cleanDetails = stripSaleConfig(details);
-  if (!sale_start && !sale_end && !archive_at && !promo_group && !promo_free) return cleanDetails;
+  if (!sale_start && !sale_end && !archive_at && !promo_group && !promo_free && !unlisted) return cleanDetails;
   const config = JSON.stringify({
     sale_start: sale_start || null,
     sale_end: sale_end || null,
     archive_at: archive_at || null,
     promo_group: promo_group || null,
     promo_free: promo_free || null,
+    unlisted: unlisted || false,
   });
   return cleanDetails + SALE_MARKER + config;
 }
@@ -31,10 +33,11 @@ export function decodeSaleConfig(details: string): {
   archive_at: string | null;
   promo_group: number | null;
   promo_free: number | null;
+  unlisted: boolean;
 } {
-  if (!details) return { details: "", sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null };
+  if (!details) return { details: "", sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null, unlisted: false };
   const idx = details.indexOf(SALE_MARKER);
-  if (idx === -1) return { details, sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null };
+  if (idx === -1) return { details, sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null, unlisted: false };
   const cleanDetails = details.slice(0, idx);
   try {
     const config = JSON.parse(details.slice(idx + SALE_MARKER.length));
@@ -45,9 +48,10 @@ export function decodeSaleConfig(details: string): {
       archive_at: config.archive_at || null,
       promo_group: typeof config.promo_group === "number" ? config.promo_group : null,
       promo_free: typeof config.promo_free === "number" ? config.promo_free : null,
+      unlisted: !!config.unlisted,
     };
   } catch {
-    return { details: cleanDetails, sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null };
+    return { details: cleanDetails, sale_start: null, sale_end: null, archive_at: null, promo_group: null, promo_free: null, unlisted: false };
   }
 }
 

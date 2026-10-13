@@ -1,7 +1,51 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { encodeSaleConfig, decodeSaleConfig } from "@/lib/saleConfig";
-import { encodeTicketTypes } from "@/lib/ticketTypes";
+import { encodeTicketTypes, decodeTicketTypes } from "@/lib/ticketTypes";
+
+// Público: resuelve un evento por su ID directo, sin importar si es
+// "privato" (no aparece en /api/events) — el link privado que el admin
+// comparte a mano es justamente ese ID. Igual respeta archived: una vez
+// terminada/archivada, el link deja de servir la fiesta.
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const supabase = getServiceClient();
+    const { data: e, error } = await supabase
+      .from("events")
+      .select("*, reservations(status, guest_count)")
+      .eq("id", id)
+      .eq("archived", false)
+      .single();
+    if (error || !e) return NextResponse.json({ error: "Evento non trovato" }, { status: 404 });
+
+    const reservations = (e.reservations as { status: string; guest_count?: number }[]) || [];
+    const ticketsSold = reservations
+      .filter((r) => (r.status === "active" || r.status === "used") && (r.guest_count ?? 1) > 0)
+      .reduce((sum, r) => sum + (r.guest_count ?? 1), 0);
+    const decoded = decodeSaleConfig(e.details || "");
+    const ttDecoded = decodeTicketTypes(decoded.details);
+
+    return NextResponse.json({
+      ...e,
+      details: ttDecoded.details,
+      sale_start: decoded.sale_start,
+      sale_end: decoded.sale_end,
+      archive_at: decoded.archive_at,
+      promo_group: decoded.promo_group,
+      promo_free: decoded.promo_free,
+      unlisted: decoded.unlisted,
+      ticket_types: ttDecoded.types,
+      reservations: undefined,
+      reservation_total: reservations.length,
+      reservation_used: reservations.filter((r) => r.status === "used").length,
+      tickets_sold: ticketsSold,
+      sold_out: !!e.max_tickets && ticketsSold >= e.max_tickets,
+    });
+  } catch {
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -11,7 +55,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     // Encode ticket types + sale config into details field
     const detailsWithTypes = encodeTicketTypes(body.details || "", body.ticket_types || []);
-    const detailsWithSale = encodeSaleConfig(detailsWithTypes, body.sale_start, body.sale_end, body.archive_at, body.promo_group ? parseInt(body.promo_group) : null, body.promo_free ? parseInt(body.promo_free) : null);
+    const detailsWithSale = encodeSaleConfig(detailsWithTypes, body.sale_start, body.sale_end, body.archive_at, body.promo_group ? parseInt(body.promo_group) : null, body.promo_free ? parseInt(body.promo_free) : null, !!body.unlisted);
 
     const { data, error } = await supabase
       .from("events")
@@ -52,7 +96,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     // Decode sale config back for the response
     const decoded = decodeSaleConfig(data.details || "");
-    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_group: decoded.promo_group, promo_free: decoded.promo_free });
+    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_group: decoded.promo_group, promo_free: decoded.promo_free, unlisted: decoded.unlisted });
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

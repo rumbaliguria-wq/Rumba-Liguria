@@ -44,6 +44,7 @@ export async function GET() {
       archive_at: decoded.archive_at,
       promo_group: decoded.promo_group,
       promo_free: decoded.promo_free,
+      unlisted: decoded.unlisted,
       reservations: undefined,
       reservation_total: reservations.length,
       reservation_used: reservations.filter((r) => r.status === "used").length,

@@ -254,6 +254,7 @@ export default function AdminPage() {
       promo_enabled: false,
       promo_group: "3",
       promo_free: "1",
+      unlisted: false,
     });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1185,6 +1186,7 @@ export default function AdminPage() {
       promo_enabled: !!(event.promo_group && event.promo_free),
       promo_group: event.promo_group ? String(event.promo_group) : "3",
       promo_free: event.promo_free ? String(event.promo_free) : "1",
+      unlisted: !!event.unlisted,
       });
       setFormTicketTypes(event.ticket_types || []);
       setPlaceQuery(event.maps_url || "");
@@ -1959,6 +1961,7 @@ export default function AdminPage() {
         promo_enabled: false,
         promo_group: "3",
         promo_free: "1",
+        unlisted: false,
         });
       setPlaceQuery("");
       setPlaceSuggestions([]);
@@ -3700,6 +3703,29 @@ export default function AdminPage() {
                         </div>
                       </div>
 
+                      {/* Private event toggle */}
+                      <div
+                        onClick={() => setFormData((p) => ({ ...p, unlisted: !p.unlisted }))}
+                        className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all ${
+                          formData.unlisted
+                            ? "bg-purple-500/10 border-purple-500/30"
+                            : "bg-white/5 border-white/10 hover:border-white/20"
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
+                          formData.unlisted ? "bg-purple-500 border-purple-500" : "border-gray-600"
+                        }`}>
+                          {formData.unlisted && <span className="text-white text-[10px]">✓</span>}
+                        </div>
+                        <div>
+                          <p className="text-sm text-white font-medium flex items-center gap-1.5">
+                            <EyeOff size={14} className="text-purple-400" />
+                            Evento privato
+                          </p>
+                          <p className="text-[10px] text-gray-500">Non appare sul sito — visibile solo con il link privato</p>
+                        </div>
+                      </div>
+
                       {/* ─── Ticket Types ─── */}
                       <div>
                         <label className="text-sm text-gray-400 mb-1 block">🎟️ Tipi di Biglietto (max 5)</label>
@@ -3927,6 +3953,11 @@ export default function AdminPage() {
                               <Star size={9} /> Popolare
                             </span>
                           )}
+                          {event.unlisted && (
+                            <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 text-[10px] font-medium border border-purple-500/20 flex-shrink-0">
+                              <EyeOff size={9} /> Privato
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-gray-500 mt-1 flex-wrap">
                           <span className={event.price === "free" ? "text-green-400" : "text-blue-400"}>
@@ -3949,6 +3980,19 @@ export default function AdminPage() {
                         </div>
                       </div>
                         <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
+                          {event.unlisted && (
+                            <button
+                              onClick={() => {
+                                const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
+                                navigator.clipboard.writeText(`${origin}/?evento=${event.id}`);
+                                toast.success("Link privato copiato!");
+                              }}
+                              title="Copia link privato"
+                              className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
+                            >
+                              <EyeOff size={15} />
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               setStatsEvent(event);

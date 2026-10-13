@@ -54,6 +54,9 @@ export async function GET() {
       await supabase.from("events").update({ archived: true }).eq("id", e.id);
       return null; // will be filtered out
     }
+    // Evento privato: no aparece en el listado público — solo accesible con
+    // su link directo (ver /api/events/[id]).
+    if (decoded.unlisted) return null;
     return {
       ...e,
       details: ttDecoded.details,
@@ -92,7 +95,7 @@ export async function POST(req: Request) {
 
     const baseInsert = {
       title: body.title,
-      details: encodeSaleConfig(encodeTicketTypes(body.details || "", body.ticket_types || []), body.sale_start, body.sale_end, body.archive_at, body.promo_group ? parseInt(body.promo_group) : null, body.promo_free ? parseInt(body.promo_free) : null),
+      details: encodeSaleConfig(encodeTicketTypes(body.details || "", body.ticket_types || []), body.sale_start, body.sale_end, body.archive_at, body.promo_group ? parseInt(body.promo_group) : null, body.promo_free ? parseInt(body.promo_free) : null, !!body.unlisted),
       price: body.price || "free",
       flyer_url: body.flyer_url,
       flyer_ratio: body.flyer_ratio || "16:9",
@@ -141,7 +144,7 @@ export async function POST(req: Request) {
     }
 
     const decoded = decodeSaleConfig(data.details || "");
-    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_group: decoded.promo_group, promo_free: decoded.promo_free });
+    return NextResponse.json({ ...data, details: decoded.details, sale_start: decoded.sale_start, sale_end: decoded.sale_end, archive_at: decoded.archive_at, promo_group: decoded.promo_group, promo_free: decoded.promo_free, unlisted: decoded.unlisted });
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

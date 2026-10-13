@@ -239,6 +239,12 @@ export default function Home() {
   const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
   const [refPending, setRefPending] = useState(false);
   const [refExpired, setRefExpired] = useState(false);
+  // Set when arriving via el link de un evento privato (?evento=id) — ese
+  // evento no está en el listado público (es "unlisted"), así que se pide
+  // directo por su ID y se muestra solo, como si fuera el único del sitio.
+  const [privateEvent, setPrivateEvent] = useState<Event | null>(null);
+  const [privateEventPending, setPrivateEventPending] = useState(false);
+  const [privateEventMissing, setPrivateEventMissing] = useState(false);
 
 
   useEffect(() => {
@@ -311,6 +317,15 @@ export default function Home() {
           })
           .catch(() => setRefExpired(true))
           .finally(() => setRefPending(false));
+      }
+      const evento = params.get("evento");
+      if (evento) {
+        setPrivateEventPending(true);
+        fetch(`/api/events/${encodeURIComponent(evento)}`)
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((d) => setPrivateEvent(d))
+          .catch(() => setPrivateEventMissing(true))
+          .finally(() => setPrivateEventPending(false));
       }
     } catch {}
   }, [router]);
@@ -813,8 +828,14 @@ export default function Home() {
   // Arriving via a personalized RRPP link locks the page to that one event.
   // /api/custom-links already refuses to resolve an archived/reassigned-away
   // event, and this filter is a second safety net in case it slipped through.
-  const visibleEvents = linkedEventId ? events.filter((e) => e.id === linkedEventId) : events;
-  const linkExpired = refExpired || (!!linkedEventId && events.length > 0 && visibleEvents.length === 0);
+  const visibleEvents = privateEvent
+    ? [privateEvent]
+    : privateEventMissing
+    ? []
+    : linkedEventId
+    ? events.filter((e) => e.id === linkedEventId)
+    : events;
+  const linkExpired = refExpired || privateEventMissing || (!!linkedEventId && events.length > 0 && visibleEvents.length === 0);
 
   // "Evento in Evidenza": the popular one if there is an upcoming one, else
   // just the next event on the list. Past events (booking already closed)
@@ -1192,7 +1213,7 @@ export default function Home() {
 
       {/* Events */}
         <section className="max-w-6xl mx-auto px-3 sm:px-4 pb-16 sm:pb-20 relative z-10">
-        {refPending ?
+        {refPending || privateEventPending ?
         <div className="flex justify-center py-16 sm:py-20 animate-fade-in">
               <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
             </div> :
