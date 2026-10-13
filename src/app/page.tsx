@@ -2154,11 +2154,11 @@ export default function Home() {
           onClick={() => setShowProfile(false)}>
 
             <div
-            className="w-full h-full sm:h-auto sm:max-w-2xl bg-[#0a0a12] sm:rounded-2xl p-4 sm:p-6 text-center space-y-4 glow-border animate-fade-in-up flex flex-col overflow-hidden"
+            className="w-full h-full sm:h-auto sm:max-h-[85vh] sm:max-w-2xl bg-[#0a0a12] sm:rounded-2xl p-4 sm:p-6 text-center space-y-4 glow-border animate-fade-in-up flex flex-col overflow-hidden"
             style={{ border: `1px solid ${a30}` }}
             onClick={(e) => e.stopPropagation()}>
 
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-shrink-0">
                 <div className="flex items-center gap-2">
                   <User size={20} style={{ color: a }} />
                   <h3 className="text-lg font-bold text-white">{t(lang, "profile.title")}</h3>
@@ -2242,7 +2242,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="pt-2 sticky bottom-0 bg-[#0a0a12]">
+              <div className="pt-2 sticky bottom-0 bg-[#0a0a12] flex-shrink-0">
                 <button
                   onClick={() => setShowProfile(false)}
                   className="w-full py-3 rounded-xl text-white font-semibold hover:opacity-80 transition-all text-sm"
