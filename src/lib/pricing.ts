@@ -11,6 +11,19 @@ export function parsePriceCents(raw: string | null | undefined): number {
   return Number.isFinite(cents) && cents > 0 ? cents : 0;
 }
 
+// Como parsePriceCents, pero para el precio en texto libre de un noleggio
+// ("€20/giorno", "50€ al weekend"): toma solo el primer número que encuentra
+// y descarta el resto (la unidad es solo informativa para quien lo lee, acá
+// no hay reserva por días — se cobra ese monto fijo una vez). Si no hay
+// ningún número (p.ej. "Prezzo da concordare"), devuelve 0.
+export function parseLeadingPriceCents(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const m = raw.match(/(\d+(?:[.,]\d{1,2})?)/);
+  if (!m) return 0;
+  const cents = Math.round(parseFloat(m[1].replace(",", ".")) * 100);
+  return Number.isFinite(cents) && cents > 0 ? cents : 0;
+}
+
 // Precio por persona en céntimos. Misma regla en servidor y navegador.
 //
 // Si el evento tiene tipos de entrada, cada uno vale por SU propio precio,

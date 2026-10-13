@@ -4770,7 +4770,7 @@ export default function AdminPage() {
                         <button onClick={() => setRentalForm(p => ({ ...p, available: !p.available }))} className={`w-10 h-6 rounded-full transition-all flex-shrink-0 ${rentalForm.available ? "bg-green-500" : "bg-white/10"}`}>
                           <div className={`w-5 h-5 bg-white rounded-full transition-all mx-0.5 ${rentalForm.available ? "translate-x-4" : "translate-x-0"}`} />
                         </button>
-                        <span className="text-xs text-gray-400">{rentalForm.available ? "Disponibile" : "Non disponibile"}</span>
+                        <span className="text-xs text-gray-400">{rentalForm.available ? "Disponibile" : "Occupato"}</span>
                       </div>
                     </div>
                     <div>
@@ -4820,7 +4820,7 @@ export default function AdminPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap mb-1">
                                 <span className="font-semibold text-sm text-white truncate">{item.name}</span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${item.available ? "bg-green-500/15 text-green-400" : "bg-gray-500/10 text-gray-400"}`}>{item.available ? "Disponibile" : "N/D"}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${item.available ? "bg-green-500/15 text-green-400" : "bg-gray-500/10 text-gray-400"}`}>{item.available ? "Disponibile" : "Occupato"}</span>
                               </div>
                               {item.price && <p className="text-xs text-blue-400 font-medium">{item.price}</p>}
                               {item.duration && <p className="text-[10px] text-gray-500">{item.duration}</p>}

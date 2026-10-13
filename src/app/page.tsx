@@ -44,13 +44,14 @@ import {
   UserPlus,
   ShoppingCart,
   Trash2,
+  CreditCard,
 } from "lucide-react";
 import Image from "next/image";
 import ThemeToggle from "@/components/ThemeToggle";
 import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
-import { unitPriceCents, formatEUR, lineTotalCents, type PromoConfig } from "@/lib/pricing";
+import { unitPriceCents, formatEUR, lineTotalCents, parseLeadingPriceCents, type PromoConfig } from "@/lib/pricing";
 
 function eventPromo(event: { promo_group?: number; promo_free?: number }): PromoConfig | null {
   return event.promo_group && event.promo_free ? { group: event.promo_group, free: event.promo_free } : null;
@@ -232,6 +233,28 @@ export default function Home() {
   const [showRentalModal, setShowRentalModal] = useState(false);
   const [rentalModalItem, setRentalModalItem] = useState<RentalItem | null>(null);
   const [rentalPhotoIndex, setRentalPhotoIndex] = useState(0);
+  const [rentalPaying, setRentalPaying] = useState<string | null>(null);
+
+  const handlePayRental = async (item: RentalItem) => {
+    setRentalPaying(item.id);
+    try {
+      const res = await fetch("/api/rentals/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: item.id }),
+      });
+      const d = await res.json();
+      if (res.ok && d.url) {
+        window.location.href = d.url;
+      } else {
+        toast.error(d.error || t(lang, "payment.failed.desc"));
+        setRentalPaying(null);
+      }
+    } catch {
+      toast.error(t(lang, "payment.failed.desc"));
+      setRentalPaying(null);
+    }
+  };
   // Set when arriving via a personalized RRPP link (?ref=name) — locks the
   // page to whichever event that name is currently assigned to, instead of
   // showing the whole event list. Resolved dynamically (not baked into the
@@ -1843,11 +1866,14 @@ export default function Home() {
                         <Phone size={16} /> {t(lang, "rental.contactWhatsapp")}
                       </a>
                     )}
-                    {rentalModalItem.contact_email && (
-                      <a href={`mailto:${rentalModalItem.contact_email}?subject=${encodeURIComponent(t(lang, "rental.emailSubject", { name: rentalModalItem.name }))}`}
-                        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
-                        <Mail size={16} /> {t(lang, "rental.sendEmail")}
-                      </a>
+                    {rentalModalItem.available && parseLeadingPriceCents(rentalModalItem.price) > 0 && (
+                      <button
+                        onClick={() => handlePayRental(rentalModalItem)}
+                        disabled={rentalPaying === rentalModalItem.id}
+                        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
+                        style={{ background: a }}>
+                        <CreditCard size={16} /> {rentalPaying === rentalModalItem.id ? "..." : t(lang, "rental.payOnline")}
+                      </button>
                     )}
                   </div>
                 </div>

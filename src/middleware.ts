@@ -47,7 +47,9 @@ function requiresAdmin(path: string, method: string): boolean {
 
   if (path.startsWith("/api/gallery") && (mutation || path === "/api/gallery/upload")) return true;
   if (path.startsWith("/api/hero-photos") && mutation) return true;
-  if (path.startsWith("/api/rentals") && mutation) return true;
+  // /api/rentals/pay es pública: el cliente paga directo desde el sitio, sin
+  // sesión de admin.
+  if (path.startsWith("/api/rentals") && path !== "/api/rentals/pay" && mutation) return true;
 
   return false;
 }
