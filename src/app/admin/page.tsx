@@ -4105,7 +4105,7 @@ export default function AdminPage() {
                           onDragOver={(e) => handleDragOver(e, event.id)}
                           onDrop={() => handleDrop(event.id)}
                           onDragLeave={() => setDragOverId(null)}
-                          className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all flex items-start gap-3 sm:gap-4 animate-fade-in cursor-grab active:cursor-grabbing ${
+                          className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all flex items-start gap-3 sm:gap-4 flex-wrap animate-fade-in cursor-grab active:cursor-grabbing ${
                             dragOverId === event.id
                               ? "border-blue-500/60 bg-blue-500/5"
                               : "border-blue-500/10 hover:border-blue-500/20"
@@ -4159,7 +4159,7 @@ export default function AdminPage() {
                           )}
                         </div>
                       </div>
-                        <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
+                        <div className="flex flex-wrap gap-1.5 sm:gap-2 flex-shrink-0 justify-end ml-auto">
                           {event.unlisted && (
                             <button
                               onClick={() => {
