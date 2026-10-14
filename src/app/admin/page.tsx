@@ -3362,11 +3362,10 @@ export default function AdminPage() {
                     className="w-full sm:max-w-lg bg-[#0a0a12] border-t sm:border border-blue-500/20 rounded-t-2xl sm:rounded-2xl glow-border max-h-[92vh] overflow-hidden flex flex-col animate-fade-in"
                     onClick={(e) => e.stopPropagation()}
                   >
-                  {/* El scroll va en este div de adentro, no en el de afuera
-                      que tiene las esquinas redondeadas — si overflow-y-auto
-                      y rounded-2xl están en el mismo elemento, la scrollbar
-                      del navegador se sale de las esquinas redondeadas. */}
-                  <div className="overflow-y-auto p-5 sm:p-6">
+                  {/* Cabecera fuera del área con scroll: así la X para
+                      cerrar siempre queda accesible, nunca tapada por la
+                      scrollbar del contenido de abajo. */}
+                  <div className="px-5 sm:px-6 pt-5 sm:pt-6 flex-shrink-0">
                     <div className="sm:hidden w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
 
                     <div className="flex items-center justify-between mb-5 sm:mb-6">
@@ -3377,6 +3376,14 @@ export default function AdminPage() {
                         <X size={18} />
                       </button>
                     </div>
+                  </div>
+                  {/* El scroll va en este div de adentro, no en el de afuera
+                      que tiene las esquinas redondeadas — si overflow-y-auto
+                      y rounded-2xl están en el mismo elemento, la scrollbar
+                      del navegador se sale de las esquinas redondeadas. El
+                      padding derecho extra deja aire entre el contenido y la
+                      scrollbar, para que no se sienta pegada al borde. */}
+                  <div className="overflow-y-auto px-5 sm:px-6 pb-5 sm:pb-6 pr-7 sm:pr-8">
 
                     <div className="space-y-4">
                       {/* Title */}
