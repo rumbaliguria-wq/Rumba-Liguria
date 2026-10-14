@@ -3359,9 +3359,14 @@ export default function AdminPage() {
                   onClick={resetForm}
                 >
                   <div
-                    className="w-full sm:max-w-lg bg-[#0a0a12] border-t sm:border border-blue-500/20 rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 glow-border max-h-[92vh] overflow-y-auto animate-fade-in"
+                    className="w-full sm:max-w-lg bg-[#0a0a12] border-t sm:border border-blue-500/20 rounded-t-2xl sm:rounded-2xl glow-border max-h-[92vh] overflow-hidden flex flex-col animate-fade-in"
                     onClick={(e) => e.stopPropagation()}
                   >
+                  {/* El scroll va en este div de adentro, no en el de afuera
+                      que tiene las esquinas redondeadas — si overflow-y-auto
+                      y rounded-2xl están en el mismo elemento, la scrollbar
+                      del navegador se sale de las esquinas redondeadas. */}
+                  <div className="overflow-y-auto p-5 sm:p-6">
                     <div className="sm:hidden w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
 
                     <div className="flex items-center justify-between mb-5 sm:mb-6">
@@ -3922,6 +3927,7 @@ export default function AdminPage() {
                             <><Save size={18} /> Pubblica Evento</>
                           )}
                         </button>
+                  </div>
                   </div>
                 </div>
               </div>
