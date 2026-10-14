@@ -55,7 +55,7 @@ import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
 import { decodeIdType } from "@/lib/cardTypes";
-import { parsePriceCents, grossUpForStripeFee, netFromGrossStripeFee, formatEUR } from "@/lib/pricing";
+import { grossUpForStripeFee, netFromGrossStripeFee, formatEUR } from "@/lib/pricing";
 import type { TicketType } from "@/lib/ticketTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
@@ -1108,15 +1108,29 @@ export default function AdminPage() {
     }
   };
 
+  // El Prezzo general ya no se tipea a mano — se arma solo según los
+  // Biglietti: sin ninguno queda gratis, con uno solo es ese precio, con
+  // varios distintos se muestra "Da €X" (el más barato) para el badge
+  // general del evento (detalle público, listados, etc.).
+  const derivePriceFromTicketTypes = (types: TicketType[]): string => {
+    const paid = types.filter((t) => t.price && t.price > 0).map((t) => t.price as number);
+    if (paid.length === 0) return "free";
+    const min = Math.min(...paid);
+    const max = Math.max(...paid);
+    return min === max ? String(min) : `Da €${min}`;
+  };
+
   const handleSave = async () => {
     if (!formData.title.trim()) {
       toast.error("Il titolo è obbligatorio");
       return;
     }
     setSaving(true);
+    const validTicketTypes = formTicketTypes.filter(tt => tt.name.trim());
     const body = {
       ...formData,
-      ticket_types: formTicketTypes.filter(tt => tt.name.trim()),
+      price: derivePriceFromTicketTypes(validTicketTypes),
+      ticket_types: validTicketTypes,
       publish_at: formData.publish_at ? new Date(formData.publish_at).toISOString() : null,
       sale_start: formData.sale_start ? new Date(formData.sale_start).toISOString() : null,
       sale_end: formData.sale_end ? new Date(formData.sale_end).toISOString() : null,
@@ -3573,76 +3587,97 @@ export default function AdminPage() {
                           />
                       </div>
 
-                      {/* Price */}
-                      <div>
-                        <label className="text-sm text-gray-400 mb-1 block">💶 Prezzo</label>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setFormData((p) => ({ ...p, price: "free" }))}
-                            className={`px-3 sm:px-4 py-2 rounded-lg text-sm transition-all flex-shrink-0 ${
-                              formData.price === "free"
-                                ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                                : "bg-white/5 text-gray-400 hover:bg-white/10"
-                            }`}
-                          >
-                            Gratis
-                          </button>
-                          <input
-                            type="text"
-                            value={formData.price === "free" ? "" : formData.price}
-                            onChange={(e) => setFormData((p) => ({ ...p, price: e.target.value || "free" }))}
-                            className="flex-1 min-w-0 px-3 sm:px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 transition-all text-sm"
-                            placeholder="es. 10"
-                          />
-                        </div>
-                        <p className="text-[10px] text-gray-500 mt-1">Se scrivi solo un importo (es. 10 o €10) l&apos;evento si paga online con carta. Con testo libero (es. &quot;Ingresso libero&quot;) resta gratis. Il prezzo di un tipo di biglietto ha la precedenza.</p>
-                        {parsePriceCents(formData.price) > 0 && (
-                          <div className="mt-2 rounded-xl border border-white/10 overflow-hidden">
-                            <div
-                              onClick={() => setFormData((p) => ({ ...p, promo_enabled: !p.promo_enabled }))}
-                              className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${
-                                formData.promo_enabled ? "bg-pink-500/10" : "bg-white/5 hover:bg-white/10"
-                              }`}
-                            >
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
-                                formData.promo_enabled ? "bg-pink-500 border-pink-500" : "border-gray-600"
-                              }`}>
-                                {formData.promo_enabled && <span className="text-white text-[10px]">✓</span>}
-                              </div>
-                              <p className="text-sm text-white font-medium">🎁 Promozione</p>
-                            </div>
-                            {formData.promo_enabled && (
-                              <div className="p-3 border-t border-white/10 bg-pink-500/5 flex items-center gap-2 flex-wrap">
-                                <span className="text-xs text-gray-400">Ogni</span>
-                                <input
-                                  type="number"
-                                  min="2"
-                                  value={formData.promo_group}
-                                  onChange={(e) => setFormData((p) => ({ ...p, promo_group: e.target.value }))}
-                                  className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
-                                />
-                                <span className="text-xs text-gray-400">biglietti,</span>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={formData.promo_free}
-                                  onChange={(e) => setFormData((p) => ({ ...p, promo_free: e.target.value }))}
-                                  className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
-                                />
-                                <span className="text-xs text-gray-400">gratis</span>
-                                {(() => {
-                                  const g = parseInt(formData.promo_group) || 0;
-                                  const f = parseInt(formData.promo_free) || 0;
-                                  if (g < 2 || f < 1 || f >= g) {
-                                    return <p className="w-full text-[10px] text-red-400 mt-1">I numeri non sono validi (es. 3 e 1) — la promo non si applicherà.</p>;
-                                  }
-                                  return <p className="w-full text-[10px] text-gray-500 mt-1">Es.: {g} → paga {g - f}, {g * 2} → paga {(g - f) * 2}.</p>;
-                                })()}
-                              </div>
+                        {/* ─── Biglietti ─── */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-sm text-gray-400 block">🎟️ Biglietti (max 5)</label>
+                            {formTicketTypes.length < 5 && (
+                              <button
+                                onClick={openAddTicketType}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all text-xs font-medium"
+                              >
+                                <Plus size={13} /> Aggiungi biglietti
+                              </button>
                             )}
                           </div>
-                        )}
-                      </div>
+                          <p className="text-[10px] text-gray-500 mb-2">Il prezzo (e se l&apos;evento si paga online) si decide qui — per un prezzo semplice, aggiungi un solo biglietto a pagamento. Senza biglietti, l&apos;evento resta gratuito.</p>
+                          {formTicketTypes.length === 0 ? (
+                            <p className="text-xs text-gray-600 py-3 text-center border border-dashed border-white/10 rounded-lg">Nessun biglietto aggiunto</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {formTicketTypes.map((tt, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => openEditTicketType(i)}
+                                  className="w-full flex items-center gap-2.5 p-2.5 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-all text-left"
+                                >
+                                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: tt.color }} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-white truncate">{tt.name || "(senza nome)"}</p>
+                                    <p className="text-[10px] text-gray-500">
+                                      {tt.quantity != null ? `Cupo: ${tt.quantity}` : "Senza cupo"}
+                                    </p>
+                                  </div>
+                                  <span className={`text-xs font-bold flex-shrink-0 ${tt.price ? "text-blue-400" : "text-green-400"}`}>
+                                    {tt.price ? formatEUR(Math.round(tt.price * 100)) : "Gratis"}
+                                  </span>
+                                  <span
+                                    onClick={(e) => { e.stopPropagation(); setFormTicketTypes(prev => prev.filter((_, j) => j !== i)); }}
+                                    className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all flex-shrink-0"
+                                  >
+                                    <X size={13} />
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {formTicketTypes.some((tt) => tt.price && tt.price > 0) && (
+                            <div className="mt-2 rounded-xl border border-white/10 overflow-hidden">
+                              <div
+                                onClick={() => setFormData((p) => ({ ...p, promo_enabled: !p.promo_enabled }))}
+                                className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${
+                                  formData.promo_enabled ? "bg-pink-500/10" : "bg-white/5 hover:bg-white/10"
+                                }`}
+                              >
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all ${
+                                  formData.promo_enabled ? "bg-pink-500 border-pink-500" : "border-gray-600"
+                                }`}>
+                                  {formData.promo_enabled && <span className="text-white text-[10px]">✓</span>}
+                                </div>
+                                <p className="text-sm text-white font-medium">🎁 Promozione</p>
+                              </div>
+                              {formData.promo_enabled && (
+                                <div className="p-3 border-t border-white/10 bg-pink-500/5 flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs text-gray-400">Ogni</span>
+                                  <input
+                                    type="number"
+                                    min="2"
+                                    value={formData.promo_group}
+                                    onChange={(e) => setFormData((p) => ({ ...p, promo_group: e.target.value }))}
+                                    className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
+                                  />
+                                  <span className="text-xs text-gray-400">biglietti,</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={formData.promo_free}
+                                    onChange={(e) => setFormData((p) => ({ ...p, promo_free: e.target.value }))}
+                                    className="w-16 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm text-center focus:outline-none focus:border-pink-500/40"
+                                  />
+                                  <span className="text-xs text-gray-400">gratis</span>
+                                  {(() => {
+                                    const g = parseInt(formData.promo_group) || 0;
+                                    const f = parseInt(formData.promo_free) || 0;
+                                    if (g < 2 || f < 1 || f >= g) {
+                                      return <p className="w-full text-[10px] text-red-400 mt-1">I numeri non sono validi (es. 3 e 1) — la promo non si applicherà.</p>;
+                                    }
+                                    return <p className="w-full text-[10px] text-gray-500 mt-1">Es.: {g} → paga {g - f}, {g * 2} → paga {(g - f) * 2}.</p>;
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
 
                         {/* Maps URL — Place Autocomplete */}
                         <div className="relative">
@@ -3773,52 +3808,6 @@ export default function AdminPage() {
                           </p>
                           <p className="text-[10px] text-gray-500">Non appare sul sito — visibile solo con il link privato</p>
                         </div>
-                      </div>
-
-                      {/* ─── Biglietti ─── */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-sm text-gray-400 block">🎟️ Biglietti (max 5)</label>
-                          {formTicketTypes.length < 5 && (
-                            <button
-                              onClick={openAddTicketType}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all text-xs font-medium"
-                            >
-                              <Plus size={13} /> Aggiungi biglietti
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-gray-500 mb-2">Opzionale. Se non aggiungi biglietti, gli utenti potranno prenotare senza scegliere.</p>
-                        {formTicketTypes.length === 0 ? (
-                          <p className="text-xs text-gray-600 py-3 text-center border border-dashed border-white/10 rounded-lg">Nessun biglietto aggiunto</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {formTicketTypes.map((tt, i) => (
-                              <button
-                                key={i}
-                                onClick={() => openEditTicketType(i)}
-                                className="w-full flex items-center gap-2.5 p-2.5 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-all text-left"
-                              >
-                                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: tt.color }} />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-white truncate">{tt.name || "(senza nome)"}</p>
-                                  <p className="text-[10px] text-gray-500">
-                                    {tt.quantity != null ? `Cupo: ${tt.quantity}` : "Senza cupo"}
-                                  </p>
-                                </div>
-                                <span className={`text-xs font-bold flex-shrink-0 ${tt.price ? "text-blue-400" : "text-green-400"}`}>
-                                  {tt.price ? formatEUR(Math.round(tt.price * 100)) : "Gratis"}
-                                </span>
-                                <span
-                                  onClick={(e) => { e.stopPropagation(); setFormTicketTypes(prev => prev.filter((_, j) => j !== i)); }}
-                                  className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all flex-shrink-0"
-                                >
-                                  <X size={13} />
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       {/* Flyer Ratio */}

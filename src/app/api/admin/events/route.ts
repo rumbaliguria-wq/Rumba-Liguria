@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { decodeSaleConfig } from "@/lib/saleConfig";
+import { decodeTicketTypes } from "@/lib/ticketTypes";
 import { getArchiveThresholdDate } from "@/lib/eventExpiry";
 
 // Admin-only: returns ALL events including archived
@@ -36,15 +37,17 @@ export async function GET() {
   const events = (data || []).map((e) => {
     const reservations = (e.reservations as { status: string }[]) || [];
     const decoded = decodeSaleConfig(e.details || "");
+    const ttDecoded = decodeTicketTypes(decoded.details);
     return {
       ...e,
-      details: decoded.details,
+      details: ttDecoded.details,
       sale_start: decoded.sale_start,
       sale_end: decoded.sale_end,
       archive_at: decoded.archive_at,
       promo_group: decoded.promo_group,
       promo_free: decoded.promo_free,
       unlisted: decoded.unlisted,
+      ticket_types: ttDecoded.types,
       reservations: undefined,
       reservation_total: reservations.length,
       reservation_used: reservations.filter((r) => r.status === "used").length,
