@@ -55,3 +55,22 @@ export function extractTicketTypeTag(userName: string | null | undefined): strin
   const m = userName.match(/\[tipo:([^\]]+)\]/);
   return m ? m[1] : null;
 }
+
+// Un color demasiado claro (pastel, amarillo pálido, etc.) hace que el QR no
+// se pueda escanear de verdad con la cámara del celular en la puerta — lo
+// confirmamos decodificando PNGs reales con jsQR: a partir de más o menos
+// luminancia 0,8 empieza a fallar incluso en condiciones ideales, y en la
+// puerta (luz de discoteca, cámara en movimiento) es bastante menos
+// tolerante. Este límite deja margen de sobra.
+const MAX_QR_LUMINANCE = 0.7;
+
+export function isQrSafeColor(hex: string | null | undefined): boolean {
+  if (!hex) return false;
+  const clean = hex.replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return false;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance <= MAX_QR_LUMINANCE;
+}

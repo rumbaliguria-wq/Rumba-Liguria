@@ -52,7 +52,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
 import { unitPriceCents, formatEUR, lineTotalCents, parseLeadingPriceCents, type PromoConfig } from "@/lib/pricing";
-import type { TicketType } from "@/lib/ticketTypes";
+import { isQrSafeColor, type TicketType } from "@/lib/ticketTypes";
 
 type PublicTicketType = TicketType & { sold?: number };
 
@@ -176,7 +176,7 @@ export default function Home() {
   const [adminCode, setAdminCode] = useState("");
   const [adminSending, setAdminSending] = useState(false);
   const [reservation, setReservation] = useState<{eventId: string;count: number;ticketType?: string;} | null>(null);
-  const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypes?: {name: string; color: string}[];} | null>(null);
+  const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypeName?: string;ticketColor?: string;} | null>(null);
   const [reserving, setReserving] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
@@ -660,7 +660,8 @@ export default function Home() {
       if (!res.ok) throw new Error(data?.error || t(lang, "reservation.error"));
 
       const codes = data.map((t: {code: string}) => t.code);
-      setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypes: event.ticket_types });
+      const matchedType = event.ticket_types?.find((tt) => tt.name === reservation.ticketType);
+      setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypeName: matchedType?.name, ticketColor: isQrSafeColor(matchedType?.color) ? matchedType?.color : undefined });
       setReservation(null);
       fetchUserReservations(userEmail);
       toast.success(t(lang, "reservation.confirmed"));
@@ -749,7 +750,7 @@ export default function Home() {
       }
       if (data.free) {
         const first = data.result?.tickets?.[0];
-        if (first) setQrData({ codes: first.codes, eventTitle: first.event_title, guestCount: first.codes.length });
+        if (first) setQrData({ codes: first.codes, eventTitle: first.event_title, guestCount: first.codes.length, ticketTypeName: first.ticket_type, ticketColor: first.ticket_color });
         setCart([]);
         setShowCart(false);
         fetchUserReservations(userEmail);
@@ -2294,6 +2295,7 @@ export default function Home() {
                                   value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${res.code}`}
                                   size={100}
                                   level="M"
+                                  fgColor={res.ticket_color || "#000000"}
                                 />
                               </div>
                             </div>
@@ -2338,10 +2340,10 @@ export default function Home() {
             
             <div className="space-y-6 pt-2">
               {qrData.codes.map((code, index) => {
-                const qrColor = qrData.ticketTypes?.[0]?.color || "#000000";
+                const qrColor = qrData.ticketColor || "#000000";
                 return (
                 <div key={code} className="space-y-2">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ticket {index + 1}{qrData.ticketTypes?.[0] ? ` — ${qrData.ticketTypes[0].name}` : ""}</p>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ticket {index + 1}{qrData.ticketTypeName ? ` — ${qrData.ticketTypeName}` : ""}</p>
                   <div className="qr-code-container bg-white rounded-xl p-3 inline-block">
                     <QRCodeSVG
                       value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${code}`}

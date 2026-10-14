@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       ticket_type,
       referral,
       origin,
+      ticketColor: matchedType?.color,
     });
     return NextResponse.json(data);
   } catch (err) {

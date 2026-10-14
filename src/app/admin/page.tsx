@@ -57,7 +57,7 @@ import OverviewTab from "./_components/OverviewTab";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
 import { decodeIdType } from "@/lib/cardTypes";
 import { grossUpForStripeFee, netFromGrossStripeFee, formatEUR } from "@/lib/pricing";
-import type { TicketType } from "@/lib/ticketTypes";
+import { isQrSafeColor, type TicketType } from "@/lib/ticketTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
 } from "./types";
@@ -4031,14 +4031,20 @@ export default function AdminPage() {
                           <p className="text-[10px] text-gray-500 mt-1">Vuoto = mai</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <label className="text-xs text-gray-400">Colore</label>
-                        <input
-                          type="color"
-                          value={ticketDraft.color}
-                          onChange={(e) => setTicketDraft((p) => ({ ...p, color: e.target.value }))}
-                          className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 cursor-pointer [color-scheme:dark]"
-                        />
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs text-gray-400">Colore</label>
+                          <input
+                            type="color"
+                            value={ticketDraft.color}
+                            onChange={(e) => setTicketDraft((p) => ({ ...p, color: e.target.value }))}
+                            className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 cursor-pointer [color-scheme:dark]"
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1">Questo colore sarà anche il colore del QR del biglietto.</p>
+                        {!isQrSafeColor(ticketDraft.color) && (
+                          <p className="text-[10px] text-yellow-500 mt-1">⚠️ Troppo chiaro: il QR userà il nero per restare leggibile allo scanner.</p>
+                        )}
                       </div>
 
                       {(ticketDraft.price !== undefined) && (

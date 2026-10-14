@@ -157,7 +157,7 @@ function SuccessContent() {
                           {t(lang, "payment.ticket")} {i + 1}
                         </p>
                         <div id={`qr-${code}`} className="inline-block p-3 bg-white rounded-xl">
-                          <QRCodeSVG value={`${origin}/verify/${code}`} size={160} level="M" />
+                          <QRCodeSVG value={`${origin}/verify/${code}`} size={160} level="M" fgColor={tk.ticket_color || "#000000"} />
                         </div>
                         <p className="font-mono text-xs text-gray-400 mt-2">{code}</p>
                         <p className="text-[11px] text-gray-500">{t(lang, "payment.showQr")}</p>

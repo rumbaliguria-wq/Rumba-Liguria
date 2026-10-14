@@ -4,7 +4,7 @@ import { sendEmail, qrTicketHtml } from "@/lib/email";
 import { decodePhoneField } from "@/lib/userPhone";
 import { getEventExpiryUTC, getSaleCloseUTC } from "@/lib/eventExpiry";
 import { decodeSaleConfig } from "@/lib/saleConfig";
-import { extractTicketTypeTag, type TicketType } from "@/lib/ticketTypes";
+import { extractTicketTypeTag, isQrSafeColor, type TicketType } from "@/lib/ticketTypes";
 
 // Extraído de api/reservations para poder reutilizar la generación de
 // códigos/QR y el envío del email de confirmación desde otros lugares.
@@ -138,6 +138,7 @@ export async function createReservationsAndNotify({
   skipEmail,
   origin,
   invoiceUrl,
+  ticketColor,
 }: {
   supabase: SupabaseClient;
   event_id: string;
@@ -157,6 +158,9 @@ export async function createReservationsAndNotify({
   origin: string;
   // Link de la factura de Stripe — solo existe en compras pagadas online.
   invoiceUrl?: string | null;
+  // Color del tipo de biglietto elegido — el QR del email sale en ese color
+  // en vez de negro, para que combine con lo que ve en el sitio.
+  ticketColor?: string | null;
 }) {
   const ticketsToCreate = [];
   const codes: string[] = [];
@@ -200,9 +204,10 @@ export async function createReservationsAndNotify({
 
   if (error) throw error;
 
+  const colorHex = isQrSafeColor(ticketColor) ? ticketColor!.trim().replace(/^#/, "") : undefined;
   const tickets = codes.map(code => {
     const verifyUrl = `${origin}/verify/${code}`;
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(verifyUrl)}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(verifyUrl)}${colorHex ? `&color=${colorHex}&bgcolor=ffffff` : ""}`;
     return { code, verifyUrl, qrImageUrl };
   });
 

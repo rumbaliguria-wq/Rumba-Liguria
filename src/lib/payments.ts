@@ -2,7 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
-import { decodeTicketTypes } from "@/lib/ticketTypes";
+import { decodeTicketTypes, isQrSafeColor } from "@/lib/ticketTypes";
 import { getUnitPriceCents, lineTotalCents, type PromoConfig } from "@/lib/pricing";
 import { decodeSaleConfig } from "@/lib/saleConfig";
 import { sendEmail, rentalPaymentHtml } from "@/lib/email";
@@ -29,6 +29,7 @@ export interface TicketResult {
   event_id: string;
   event_title: string;
   ticket_type?: string;
+  ticket_color?: string;
   codes: string[];
 }
 
@@ -127,9 +128,9 @@ export async function fulfillItems(
         .select("title, max_tickets, max_per_person, event_date_iso, details")
         .eq("id", line.event_id)
         .single();
+      const { types } = decodeTicketTypes(event?.details || "");
+      const matchedType = types.find((t) => t.name === line.ticket_type) || null;
       if (!line.admin_override) {
-        const { types } = decodeTicketTypes(event?.details || "");
-        const matchedType = types.find((t) => t.name === line.ticket_type) || null;
         const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents, matchedType);
         if (bookingError) throw new Error(bookingError);
       }
@@ -145,11 +146,13 @@ export async function fulfillItems(
         referral: line.referral,
         origin,
         invoiceUrl,
+        ticketColor: matchedType?.color,
       });
       result.tickets.push({
         event_id: line.event_id,
         event_title: line.event_title,
         ticket_type: line.ticket_type,
+        ticket_color: isQrSafeColor(matchedType?.color) ? matchedType?.color : undefined,
         codes: (rows || []).map((r: { code: string }) => r.code),
       });
     } catch (err) {
