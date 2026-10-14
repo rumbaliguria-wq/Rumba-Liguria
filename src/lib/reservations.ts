@@ -4,6 +4,7 @@ import { sendEmail, qrTicketHtml } from "@/lib/email";
 import { decodePhoneField } from "@/lib/userPhone";
 import { getEventExpiryUTC, getSaleCloseUTC } from "@/lib/eventExpiry";
 import { decodeSaleConfig } from "@/lib/saleConfig";
+import { extractTicketTypeTag, type TicketType } from "@/lib/ticketTypes";
 
 // Extraído de api/reservations para poder reutilizar la generación de
 // códigos/QR y el envío del email de confirmación desde otros lugares.
@@ -29,7 +30,8 @@ export async function validateBookingRules(
   guest_count: number,
   event_id: string,
   user_email?: string,
-  unitCents = 0
+  unitCents = 0,
+  ticketType?: TicketType | null
 ): Promise<string | null> {
   const eventDateIso = event?.event_date_iso;
 
@@ -67,6 +69,14 @@ export async function validateBookingRules(
     return "Le prenotazioni per questo evento sono chiuse.";
   }
 
+  // Ventana de venta propia del tipo de biglietto (aparte de la del evento).
+  if (ticketType?.sale_start && Date.now() < new Date(ticketType.sale_start).getTime()) {
+    return `Le prenotazioni per "${ticketType.name}" non sono ancora aperte.`;
+  }
+  if (ticketType?.sale_end && Date.now() > new Date(ticketType.sale_end).getTime()) {
+    return `Le prenotazioni per "${ticketType.name}" sono chiuse.`;
+  }
+
   // Lo gratis es siempre de a una persona por reserva, sin importar el
   // "Posti max per persona" del evento (ese límite es solo para lo pagado).
   if (unitCents === 0 && guest_count > 1) {
@@ -90,6 +100,24 @@ export async function validateBookingRules(
         return "SOLD OUT — I biglietti sono esauriti. Scrivici su WhatsApp per info sulla lista d'attesa.";
       }
       return `Rimangono solo ${remaining} ${remaining === 1 ? "posto" : "posti"} disponibili.`;
+    }
+  }
+
+  if (ticketType?.quantity != null) {
+    const { data: existing } = await supabase
+      .from("reservations")
+      .select("guest_count, user_name")
+      .eq("event_id", event_id)
+      .in("status", ["active", "used"]);
+    const sold = (existing || [])
+      .filter((r: { user_name: string }) => extractTicketTypeTag(r.user_name) === ticketType.name)
+      .reduce((sum: number, r: { guest_count: number }) => sum + r.guest_count, 0);
+    if (sold + guest_count > ticketType.quantity) {
+      const remaining = ticketType.quantity - sold;
+      if (remaining <= 0) {
+        return `"${ticketType.name}" esaurito.`;
+      }
+      return `Rimangono solo ${remaining} ${remaining === 1 ? "biglietto" : "biglietti"} di "${ticketType.name}".`;
     }
   }
 

@@ -1,6 +1,8 @@
 // Tipos compartidos del panel de administración. Extraídos de page.tsx para
 // que los componentes de cada pestaña (_components/*) los reutilicen.
 
+import type { TicketType } from "@/lib/ticketTypes";
+
 export interface Event {
   id: string;
   title: string;
@@ -28,7 +30,7 @@ export interface Event {
   promo_group?: number;
   promo_free?: number;
   unlisted?: boolean;
-  ticket_types?: { name: string; color: string; price?: number }[];
+  ticket_types?: TicketType[];
   created_at: string;
   reservation_total?: number;
   reservation_used?: number;

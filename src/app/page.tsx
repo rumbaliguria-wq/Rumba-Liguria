@@ -52,6 +52,9 @@ import { QRCodeSVG } from "qrcode.react";
 import { type Lang, t } from "@/lib/translations";
 import { getSaleCloseUTC } from "@/lib/eventExpiry";
 import { unitPriceCents, formatEUR, lineTotalCents, parseLeadingPriceCents, type PromoConfig } from "@/lib/pricing";
+import type { TicketType } from "@/lib/ticketTypes";
+
+type PublicTicketType = TicketType & { sold?: number };
 
 function eventPromo(event: { promo_group?: number; promo_free?: number }): PromoConfig | null {
   return event.promo_group && event.promo_free ? { group: event.promo_group, free: event.promo_free } : null;
@@ -117,7 +120,7 @@ interface Event {
   sale_end?: string;
   promo_group?: number;
   promo_free?: number;
-  ticket_types?: { name: string; color: string; price?: number }[];
+  ticket_types?: PublicTicketType[];
   created_at: string;
   reservation_total: number;
   reservation_used: number;
@@ -1528,29 +1531,43 @@ export default function Home() {
                         <div className="mb-3">
                           <label className="text-xs text-gray-400 mb-1.5 block">{t(lang, "eventDetail.ticketType")}</label>
                           <div className="grid grid-cols-2 gap-2">
-                            {detailEvent.ticket_types.map((tt) => (
+                            {detailEvent.ticket_types.map((tt) => {
+                              const now = Date.now();
+                              const notYetOnSale = !!tt.sale_start && now < new Date(tt.sale_start).getTime();
+                              const saleClosed = !!tt.sale_end && now > new Date(tt.sale_end).getTime();
+                              const soldOut = tt.quantity != null && (tt.sold ?? 0) >= tt.quantity;
+                              const unavailable = notYetOnSale || saleClosed || soldOut;
+                              return (
                               <button
                                 key={tt.name}
+                                disabled={unavailable}
                                 onClick={() => setReservation((prev) => {
                                   if (!prev) return null;
                                   const isFree = unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name) === 0;
                                   return { ...prev, ticketType: tt.name, count: isFree ? 1 : prev.count };
                                 })}
                                 className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
-                                  reservation.ticketType === tt.name
+                                  unavailable
+                                    ? "text-gray-600 border-white/5 opacity-50 cursor-not-allowed"
+                                    : reservation.ticketType === tt.name
                                     ? "text-white border-white/30"
                                     : "text-gray-400 border-white/10 hover:border-white/20"
                                 }`}
-                                style={reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
+                                style={!unavailable && reservation.ticketType === tt.name ? { background: `${tt.color}25`, borderColor: tt.color } : {}}
                               >
                                 <span className="block">{tt.name}</span>
-                                {unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name) > 0 && (
+                                {unavailable ? (
+                                  <span className="block text-[10px] mt-0.5">
+                                    {soldOut ? "Esaurito" : notYetOnSale ? "Non ancora in vendita" : "Vendita chiusa"}
+                                  </span>
+                                ) : unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name) > 0 && (
                                   <span className="block text-[11px] font-bold mt-0.5" style={{ color: tt.color }}>
                                     {formatEUR(unitPriceCents(detailEvent.price, detailEvent.ticket_types, tt.name))}
                                   </span>
                                 )}
                               </button>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}

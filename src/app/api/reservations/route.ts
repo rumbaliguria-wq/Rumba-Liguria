@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 import { getUnitPriceCents } from "@/lib/pricing";
+import { decodeTicketTypes } from "@/lib/ticketTypes";
 
 export async function GET() {
   const supabase = getServiceClient();
@@ -36,7 +37,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Questo biglietto è a pagamento: aggiungilo al carrello." }, { status: 402 });
   }
 
-  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email, unitCents);
+  const { types } = decodeTicketTypes(event?.details || "");
+  const matchedType = types.find((t) => t.name === ticket_type) || null;
+  const bookingError = await validateBookingRules(supabase, event, guest_count, event_id, user_email, unitCents, matchedType);
   if (bookingError) {
     return NextResponse.json({ error: bookingError }, { status: 400 });
   }

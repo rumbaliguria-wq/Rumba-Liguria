@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { encodeSaleConfig, decodeSaleConfig } from "@/lib/saleConfig";
-import { encodeTicketTypes, decodeTicketTypes } from "@/lib/ticketTypes";
+import { encodeTicketTypes, decodeTicketTypes, extractTicketTypeTag } from "@/lib/ticketTypes";
 
 // Público: resuelve un evento por su ID directo, sin importar si es
 // "privato" (no aparece en /api/events) — el link privado que el admin
@@ -13,18 +13,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const supabase = getServiceClient();
     const { data: e, error } = await supabase
       .from("events")
-      .select("*, reservations(status, guest_count)")
+      .select("*, reservations(status, guest_count, user_name)")
       .eq("id", id)
       .eq("archived", false)
       .single();
     if (error || !e) return NextResponse.json({ error: "Evento non trovato" }, { status: 404 });
 
-    const reservations = (e.reservations as { status: string; guest_count?: number }[]) || [];
-    const ticketsSold = reservations
-      .filter((r) => (r.status === "active" || r.status === "used") && (r.guest_count ?? 1) > 0)
-      .reduce((sum, r) => sum + (r.guest_count ?? 1), 0);
+    const reservations = (e.reservations as { status: string; guest_count?: number; user_name?: string }[]) || [];
+    const validReservations = reservations.filter((r) => (r.status === "active" || r.status === "used") && (r.guest_count ?? 1) > 0);
+    const ticketsSold = validReservations.reduce((sum, r) => sum + (r.guest_count ?? 1), 0);
     const decoded = decodeSaleConfig(e.details || "");
     const ttDecoded = decodeTicketTypes(decoded.details);
+    const typesWithSold = ttDecoded.types.map((tt) => ({
+      ...tt,
+      sold: validReservations
+        .filter((r) => extractTicketTypeTag(r.user_name) === tt.name)
+        .reduce((sum, r) => sum + (r.guest_count ?? 1), 0),
+    }));
 
     return NextResponse.json({
       ...e,
@@ -35,7 +40,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       promo_group: decoded.promo_group,
       promo_free: decoded.promo_free,
       unlisted: decoded.unlisted,
-      ticket_types: ttDecoded.types,
+      ticket_types: typesWithSold,
       reservations: undefined,
       reservation_total: reservations.length,
       reservation_used: reservations.filter((r) => r.status === "used").length,

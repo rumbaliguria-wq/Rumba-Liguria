@@ -84,7 +84,8 @@ export async function priceCart(
     }
 
     const unitCents = getUnitPriceCents(event, raw.ticket_type);
-    const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email, unitCents);
+    const matchedType = types.find((t) => t.name === raw.ticket_type) || null;
+    const bookingError = await validateBookingRules(supabase, event, guest_count, event.id, email, unitCents, matchedType);
     if (bookingError) return { ok: false, error: `${event.title}: ${bookingError}` };
 
     const eventConfig = decodeSaleConfig(event.details || "");
@@ -127,7 +128,9 @@ export async function fulfillItems(
         .eq("id", line.event_id)
         .single();
       if (!line.admin_override) {
-        const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents);
+        const { types } = decodeTicketTypes(event?.details || "");
+        const matchedType = types.find((t) => t.name === line.ticket_type) || null;
+        const bookingError = await validateBookingRules(supabase, event, line.guest_count, line.event_id, email, line.unit_cents, matchedType);
         if (bookingError) throw new Error(bookingError);
       }
 

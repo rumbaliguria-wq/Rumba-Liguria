@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { sendEmail, eventAnnouncementHtml } from "@/lib/email";
 import { encodeSaleConfig, decodeSaleConfig } from "@/lib/saleConfig";
-import { encodeTicketTypes, decodeTicketTypes } from "@/lib/ticketTypes";
+import { encodeTicketTypes, decodeTicketTypes, extractTicketTypeTag } from "@/lib/ticketTypes";
 import { getArchiveThresholdDate } from "@/lib/eventExpiry";
 
 export async function GET() {
@@ -32,7 +32,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("events")
-      .select("*, reservations(status, guest_count)")
+      .select("*, reservations(status, guest_count, user_name)")
       .eq("archived", false)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
@@ -42,11 +42,10 @@ export async function GET() {
   // Add reservation counts + decode sale config + ticket types from details
   // Also handle archive_at: if set and time has passed, archive the event
   const events = await Promise.all((data || []).map(async (e) => {
-    const reservations = (e.reservations as { status: string; guest_count?: number }[]) || [];
+    const reservations = (e.reservations as { status: string; guest_count?: number; user_name?: string }[]) || [];
     // Real tickets sold: active/used only (excludes cancelled and VIP/link codes with guest_count 0)
-    const ticketsSold = reservations
-      .filter((r) => (r.status === "active" || r.status === "used") && (r.guest_count ?? 1) > 0)
-      .reduce((sum, r) => sum + (r.guest_count ?? 1), 0);
+    const validReservations = reservations.filter((r) => (r.status === "active" || r.status === "used") && (r.guest_count ?? 1) > 0);
+    const ticketsSold = validReservations.reduce((sum, r) => sum + (r.guest_count ?? 1), 0);
     const decoded = decodeSaleConfig(e.details || "");
     const ttDecoded = decodeTicketTypes(decoded.details);
     // Auto-archive if archive_at is set and has passed
@@ -57,6 +56,14 @@ export async function GET() {
     // Evento privato: no aparece en el listado público — solo accesible con
     // su link directo (ver /api/events/[id]).
     if (decoded.unlisted) return null;
+    // Cuánto se vendió de cada tipo, para poder marcar "esaurito" por tipo
+    // sin esperar a que la compra falle recién en el carrito.
+    const typesWithSold = ttDecoded.types.map((tt) => ({
+      ...tt,
+      sold: validReservations
+        .filter((r) => extractTicketTypeTag(r.user_name) === tt.name)
+        .reduce((sum, r) => sum + (r.guest_count ?? 1), 0),
+    }));
     return {
       ...e,
       details: ttDecoded.details,
@@ -65,7 +72,7 @@ export async function GET() {
       archive_at: decoded.archive_at,
       promo_group: decoded.promo_group,
       promo_free: decoded.promo_free,
-      ticket_types: ttDecoded.types,
+      ticket_types: typesWithSold,
       reservations: undefined,
       reservation_total: reservations.length,
       reservation_used: reservations.filter((r) => r.status === "used").length,

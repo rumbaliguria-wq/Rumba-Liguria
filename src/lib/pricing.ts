@@ -72,6 +72,28 @@ export function lineTotalCents(unitCents: number, count: number, promo: PromoCon
   return unitCents * payableCount;
 }
 
+// Tarifa estándar de Stripe para tarjetas europeas (1,5% + 0,25€). Las
+// tarjetas no-UE o Amex cobran distinto, pero como no se sabe el tipo de
+// tarjeta ANTES de cobrar, se usa esta como referencia — es la que aplica a
+// la gran mayoría de clientes de Rumba Liguria.
+const STRIPE_FEE_RATE = 0.015;
+const STRIPE_FEE_FIXED_CENTS = 25;
+
+// Cuánto hay que cobrarle al comprador para que, después de que Stripe se
+// quede con su comisión, el organizador reciba exactamente `netCents`.
+export function grossUpForStripeFee(netCents: number): number {
+  if (netCents <= 0) return 0;
+  return Math.ceil((netCents + STRIPE_FEE_FIXED_CENTS) / (1 - STRIPE_FEE_RATE));
+}
+
+// Inversa: dado lo que se le cobra al comprador, cuánto neto le queda al
+// organizador — solo para mostrarlo en el form de admin al editar un
+// biglietto que ya tenía la comisión trasladada.
+export function netFromGrossStripeFee(grossCents: number): number {
+  if (grossCents <= 0) return 0;
+  return Math.round(grossCents * (1 - STRIPE_FEE_RATE) - STRIPE_FEE_FIXED_CENTS);
+}
+
 export function formatEUR(cents: number): string {
   const v = (cents / 100).toFixed(2).replace(/\.00$/, "");
   return `€${v}`;

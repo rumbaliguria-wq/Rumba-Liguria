@@ -55,7 +55,8 @@ import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
 import { decodeIdType } from "@/lib/cardTypes";
-import { parsePriceCents } from "@/lib/pricing";
+import { parsePriceCents, grossUpForStripeFee, netFromGrossStripeFee, formatEUR } from "@/lib/pricing";
+import type { TicketType } from "@/lib/ticketTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
 } from "./types";
@@ -282,7 +283,55 @@ export default function AdminPage() {
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeLoading, setPlaceLoading] = useState(false);
-  const [formTicketTypes, setFormTicketTypes] = useState<{name: string; color: string; price?: number}[]>([]);
+  const [formTicketTypes, setFormTicketTypes] = useState<TicketType[]>([]);
+  const [showTicketTypeForm, setShowTicketTypeForm] = useState(false);
+  const [ticketTypeStep, setTicketTypeStep] = useState<"choose" | "edit">("choose");
+  const [editingTicketIndex, setEditingTicketIndex] = useState<number | null>(null);
+  const DEFAULT_TICKET_DRAFT: TicketType = { name: "", color: "#3b82f6", price: undefined, description: "", quantity: null, sale_start: null, sale_end: null, feesToBuyer: false };
+  const [ticketDraft, setTicketDraft] = useState<TicketType>(DEFAULT_TICKET_DRAFT);
+  const [ticketDraftNetPrice, setTicketDraftNetPrice] = useState("");
+
+  const openAddTicketType = () => {
+    setEditingTicketIndex(null);
+    setTicketDraft(DEFAULT_TICKET_DRAFT);
+    setTicketDraftNetPrice("");
+    setTicketTypeStep("choose");
+    setShowTicketTypeForm(true);
+  };
+
+  const openEditTicketType = (i: number) => {
+    const tt = formTicketTypes[i];
+    setEditingTicketIndex(i);
+    setTicketDraft(tt);
+    setTicketDraftNetPrice(
+      tt.price ? String(tt.feesToBuyer ? (netFromGrossStripeFee(Math.round(tt.price * 100)) / 100) : tt.price) : ""
+    );
+    setTicketTypeStep("edit");
+    setShowTicketTypeForm(true);
+  };
+
+  const saveTicketTypeDraft = () => {
+    if (!ticketDraft.name.trim()) { toast.error("Il nome del biglietto è obbligatorio"); return; }
+    const isPaid = ticketDraft.price !== undefined || ticketDraftNetPrice.trim() !== "";
+    let finalDraft: TicketType = { ...ticketDraft };
+    if (isPaid) {
+      const netValue = parseFloat(ticketDraftNetPrice.replace(",", "."));
+      if (!Number.isFinite(netValue) || netValue <= 0) { toast.error("Inserisci un prezzo valido"); return; }
+      if (ticketDraft.feesToBuyer) {
+        finalDraft.price = grossUpForStripeFee(Math.round(netValue * 100)) / 100;
+      } else {
+        finalDraft.price = netValue;
+      }
+    } else {
+      finalDraft = { ...finalDraft, price: undefined, feesToBuyer: false };
+    }
+    if (editingTicketIndex === null) {
+      setFormTicketTypes((prev) => [...prev, finalDraft]);
+    } else {
+      setFormTicketTypes((prev) => prev.map((t, i) => (i === editingTicketIndex ? finalDraft : t)));
+    }
+    setShowTicketTypeForm(false);
+  };
   const [manualLinkMode, setManualLinkMode] = useState(false);
   const [showVipSection, setShowVipSection] = useState(false);
   const [vipEventId, setVipEventId] = useState("");
@@ -3726,71 +3775,192 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      {/* ─── Ticket Types ─── */}
+                      {/* ─── Biglietti ─── */}
                       <div>
-                        <label className="text-sm text-gray-400 mb-1 block">🎟️ Tipi di Biglietto (max 5)</label>
-                        <p className="text-[10px] text-gray-500 mb-2">Opzionale. Se non aggiungi tipi, gli utenti potranno prenotare senza scegliere.</p>
-                        <div className="space-y-2">
-                          {formTicketTypes.map((tt, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={tt.name}
-                                onChange={(e) => {
-                                  const next = [...formTicketTypes];
-                                  next[i].name = e.target.value;
-                                  setFormTicketTypes(next);
-                                }}
-                                placeholder="es. Entrada Hombre"
-                                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
-                              />
-                              <div className="relative w-20 flex-shrink-0">
-                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">€</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.5"
-                                  inputMode="decimal"
-                                  value={tt.price ?? ""}
-                                  onChange={(e) => {
-                                    const next = [...formTicketTypes];
-                                    const v = parseFloat(e.target.value);
-                                    next[i] = { ...next[i], price: Number.isFinite(v) && v > 0 ? v : undefined };
-                                    setFormTicketTypes(next);
-                                  }}
-                                  placeholder="0"
-                                  className="w-full pl-6 pr-1 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40"
-                                />
-                              </div>
-                              <input
-                                type="color"
-                                value={tt.color}
-                                onChange={(e) => {
-                                  const next = [...formTicketTypes];
-                                  next[i].color = e.target.value;
-                                  setFormTicketTypes(next);
-                                }}
-                                className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 cursor-pointer [color-scheme:dark]"
-                              />
-                              <button
-                                onClick={() => setFormTicketTypes(prev => prev.filter((_, j) => j !== i))}
-                                className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ))}
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-sm text-gray-400 block">🎟️ Biglietti (max 5)</label>
                           {formTicketTypes.length < 5 && (
                             <button
-                              onClick={() => setFormTicketTypes(prev => [...prev, { name: "", color: "#3b82f6" }])}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm"
+                              onClick={openAddTicketType}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all text-xs font-medium"
                             >
-                              <Plus size={14} /> Aggiungi tipo
+                              <Plus size={13} /> Aggiungi biglietti
                             </button>
                           )}
-                          <p className="text-[10px] text-gray-500">Prezzo in € per persona. Lascialo vuoto (o 0) e quel tipo sarà gratis (prenotazione diretta); con un importo si paga online con carta tramite il carrello.</p>
                         </div>
+                        <p className="text-[10px] text-gray-500 mb-2">Opzionale. Se non aggiungi biglietti, gli utenti potranno prenotare senza scegliere.</p>
+                        {formTicketTypes.length === 0 ? (
+                          <p className="text-xs text-gray-600 py-3 text-center border border-dashed border-white/10 rounded-lg">Nessun biglietto aggiunto</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {formTicketTypes.map((tt, i) => (
+                              <button
+                                key={i}
+                                onClick={() => openEditTicketType(i)}
+                                className="w-full flex items-center gap-2.5 p-2.5 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-all text-left"
+                              >
+                                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: tt.color }} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-white truncate">{tt.name || "(senza nome)"}</p>
+                                  <p className="text-[10px] text-gray-500">
+                                    {tt.quantity != null ? `Cupo: ${tt.quantity}` : "Senza cupo"}
+                                  </p>
+                                </div>
+                                <span className={`text-xs font-bold flex-shrink-0 ${tt.price ? "text-blue-400" : "text-green-400"}`}>
+                                  {tt.price ? formatEUR(Math.round(tt.price * 100)) : "Gratis"}
+                                </span>
+                                <span
+                                  onClick={(e) => { e.stopPropagation(); setFormTicketTypes(prev => prev.filter((_, j) => j !== i)); }}
+                                  className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all flex-shrink-0"
+                                >
+                                  <X size={13} />
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+
+                      {/* ─── Modale Aggiungi/Modifica biglietto ─── */}
+                      {showTicketTypeForm && (
+                        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) setShowTicketTypeForm(false); }}>
+                          <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
+                            <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
+                              <h3 className="font-bold text-white text-base">
+                                {ticketTypeStep === "choose" ? "Nuovo biglietto" : ticketDraft.price !== undefined || ticketDraftNetPrice ? "Biglietto a pagamento" : "Biglietto gratuito"}
+                              </h3>
+                              <button onClick={() => setShowTicketTypeForm(false)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                            </div>
+
+                            {ticketTypeStep === "choose" ? (
+                              <div className="p-4 grid grid-cols-2 gap-3">
+                                <button
+                                  onClick={() => { setTicketDraft({ ...DEFAULT_TICKET_DRAFT }); setTicketDraftNetPrice(""); setTicketTypeStep("edit"); }}
+                                  className="py-8 rounded-xl bg-green-500/10 border border-green-500/25 text-green-400 font-semibold hover:bg-green-500/20 transition-all"
+                                >
+                                  Gratuito
+                                </button>
+                                <button
+                                  onClick={() => { setTicketDraft({ ...DEFAULT_TICKET_DRAFT, price: 0 }); setTicketDraftNetPrice(""); setTicketTypeStep("edit"); }}
+                                  className="py-8 rounded-xl bg-blue-500/10 border border-blue-500/25 text-blue-400 font-semibold hover:bg-blue-500/20 transition-all"
+                                >
+                                  Pagato
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                                <div>
+                                  <label className="text-xs text-gray-400 mb-1 block">Nome del biglietto *</label>
+                                  <input
+                                    value={ticketDraft.name}
+                                    maxLength={50}
+                                    onChange={(e) => setTicketDraft((p) => ({ ...p, name: e.target.value }))}
+                                    placeholder="Inserisci un nome breve e riconoscibile"
+                                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-400 mb-1 block">Descrizione</label>
+                                  <textarea
+                                    value={ticketDraft.description || ""}
+                                    onChange={(e) => setTicketDraft((p) => ({ ...p, description: e.target.value }))}
+                                    placeholder="Informazioni facoltative"
+                                    rows={2}
+                                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 resize-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-400 mb-1 block">Quantità (vuoto = senza limite)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={ticketDraft.quantity ?? ""}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? null : parseInt(e.target.value);
+                                      setTicketDraft((p) => ({ ...p, quantity: Number.isFinite(v) && (v as number) > 0 ? v : null }));
+                                    }}
+                                    placeholder="es. 50"
+                                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-xs text-gray-400 mb-1 block">Inizio vendita</label>
+                                    <input
+                                      type="datetime-local"
+                                      value={ticketDraft.sale_start ? (() => { const d = new Date(ticketDraft.sale_start as string); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); })() : ""}
+                                      onChange={(e) => setTicketDraft((p) => ({ ...p, sale_start: e.target.value ? new Date(e.target.value).toISOString() : null }))}
+                                      className="w-full px-2.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                                    />
+                                    <p className="text-[10px] text-gray-500 mt-1">Vuoto = subito</p>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-gray-400 mb-1 block">Fine vendita</label>
+                                    <input
+                                      type="datetime-local"
+                                      value={ticketDraft.sale_end ? (() => { const d = new Date(ticketDraft.sale_end as string); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); })() : ""}
+                                      onChange={(e) => setTicketDraft((p) => ({ ...p, sale_end: e.target.value ? new Date(e.target.value).toISOString() : null }))}
+                                      className="w-full px-2.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                                    />
+                                    <p className="text-[10px] text-gray-500 mt-1">Vuoto = mai</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <label className="text-xs text-gray-400">Colore</label>
+                                  <input
+                                    type="color"
+                                    value={ticketDraft.color}
+                                    onChange={(e) => setTicketDraft((p) => ({ ...p, color: e.target.value }))}
+                                    className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 cursor-pointer [color-scheme:dark]"
+                                  />
+                                </div>
+
+                                {(ticketDraft.price !== undefined) && (
+                                  <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-2.5">
+                                    <div>
+                                      <label className="text-xs text-gray-400 mb-1 block">Prezzo (quello che vuoi ricevere tu, €)</label>
+                                      <input
+                                        value={ticketDraftNetPrice}
+                                        inputMode="decimal"
+                                        onChange={(e) => setTicketDraftNetPrice(e.target.value)}
+                                        placeholder="es. 10"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40"
+                                      />
+                                    </div>
+                                    <div
+                                      onClick={() => setTicketDraft((p) => ({ ...p, feesToBuyer: !p.feesToBuyer }))}
+                                      className="flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer bg-white/5 border border-white/10"
+                                    >
+                                      <div className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${ticketDraft.feesToBuyer ? "bg-blue-500" : "bg-white/10"}`}>
+                                        <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${ticketDraft.feesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
+                                      </div>
+                                      <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe</span>
+                                    </div>
+                                    {(() => {
+                                      const net = parseFloat(ticketDraftNetPrice.replace(",", "."));
+                                      if (!Number.isFinite(net) || net <= 0) return null;
+                                      const totalCents = ticketDraft.feesToBuyer ? grossUpForStripeFee(Math.round(net * 100)) : Math.round(net * 100);
+                                      return (
+                                        <p className="text-xs text-gray-400">
+                                          Totale acquirente: <span className="font-bold text-white">{formatEUR(totalCents)}</span>
+                                          {ticketDraft.feesToBuyer && <span className="text-gray-600"> (comprende ~1,5% + €0,25 di commissione)</span>}
+                                        </p>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+
+                                <div className="flex gap-2 pt-1">
+                                  <button onClick={saveTicketTypeDraft} className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 transition-all active:scale-95">
+                                    {editingTicketIndex === null ? "Aggiungi" : "Salva"}
+                                  </button>
+                                  <button onClick={() => setShowTicketTypeForm(false)} className="flex-1 py-2.5 rounded-xl bg-white/5 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all active:scale-95">Annulla</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Flyer Ratio */}
                       <div>
