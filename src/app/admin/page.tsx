@@ -4133,11 +4133,6 @@ export default function AdminPage() {
                               <Star size={9} /> Popolare
                             </span>
                           )}
-                          {event.unlisted && (
-                            <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 text-[10px] font-medium border border-purple-500/20 flex-shrink-0">
-                              <EyeOff size={9} /> Privato
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-gray-500 mt-1 flex-wrap">
                           <span className={event.price === "free" ? "text-green-400" : "text-blue-400"}>
@@ -4156,6 +4151,11 @@ export default function AdminPage() {
                           )}
                           {event.maps_url && (
                             <span className="text-blue-400 flex items-center gap-0.5"><MapPin size={9} />Mappa</span>
+                          )}
+                          {event.unlisted && (
+                            <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 text-[10px] font-medium border border-purple-500/20 flex-shrink-0">
+                              <EyeOff size={9} /> Privato
+                            </span>
                           )}
                         </div>
                       </div>
