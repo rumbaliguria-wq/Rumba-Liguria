@@ -4105,13 +4105,13 @@ export default function AdminPage() {
                           onDragOver={(e) => handleDragOver(e, event.id)}
                           onDrop={() => handleDrop(event.id)}
                           onDragLeave={() => setDragOverId(null)}
-                          className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all flex items-center gap-3 sm:gap-4 animate-fade-in cursor-grab active:cursor-grabbing ${
+                          className={`p-3 sm:p-4 rounded-xl bg-[#0a0a12] border transition-all flex items-start gap-3 sm:gap-4 animate-fade-in cursor-grab active:cursor-grabbing ${
                             dragOverId === event.id
                               ? "border-blue-500/60 bg-blue-500/5"
                               : "border-blue-500/10 hover:border-blue-500/20"
                           }`}
                         >
-                      <div className="text-gray-600 flex-shrink-0 touch-none select-none">
+                      <div className="text-gray-600 flex-shrink-0 touch-none select-none mt-1">
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><circle cx="4" cy="3" r="1.2"/><circle cx="10" cy="3" r="1.2"/><circle cx="4" cy="7" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="4" cy="11" r="1.2"/><circle cx="10" cy="11" r="1.2"/></svg>
                       </div>
                       {event.flyer_url && (
