@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -3352,8 +3353,11 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Event Form Modal */}
-            {showForm && (
+            {/* Event Form Modal — en portal a document.body: el contenedor
+                principal tiene "relative z-10", así que cualquier modal
+                anidado adentro queda atrapado debajo del header (sticky
+                z-50) sin importar qué z-index le pongamos acá. */}
+            {showForm && createPortal(
                 <div
                   className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4"
                   onClick={resetForm}
@@ -3937,15 +3941,14 @@ export default function AdminPage() {
                   </div>
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* ─── Modale Aggiungi/Modifica biglietto ───
-                Hermano del modal del form de evento (no anidado adentro):
-                un "fixed" metido dentro de otro contenedor con backdrop-blur
-                + scroll interno se rompe en Safari/iOS (termina pegado al
-                scroll en vez de quedarse fijo en la pantalla). */}
-            {showTicketTypeForm && (
+                También en portal, por la misma razón: atrapado dentro del
+                z-10 principal, quedaría tapado por el header. */}
+            {showTicketTypeForm && createPortal(
               <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) setShowTicketTypeForm(false); }}>
                 <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
                   <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
@@ -4082,7 +4085,8 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Events List */}
