@@ -2912,14 +2912,14 @@ export default function AdminPage() {
                     // can get reassigned across several events over time, and we
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
-                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null }> = {};
+                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null; createdAt: string }> = {};
                     // Primero se listan todos los links creados (fila "stub",
                     // user_email = __link__nombre__), aunque todavía no tengan
                     // ninguna reserva — así siempre se puede ver/cambiar su PIN.
                     reservations.forEach(r => {
                       if (r.user_email?.startsWith("__link__")) {
                         const key = `${r.user_name}::${r.event_id}`;
-                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin };
+                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin, createdAt: r.created_at };
                       }
                     });
                     reservations.forEach(r => {
@@ -2927,13 +2927,16 @@ export default function AdminPage() {
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined, createdAt: r.created_at };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
                       }
                     });
                     const all = Object.values(linkStats);
-                    const active = all.filter(s => !s.archived);
+                    // El que reactivaste (o creaste) recién queda primero, sin
+                    // importar la fecha de la fiesta — así lo ves de un vistazo
+                    // apenas lo tocás, en vez de tener que buscarlo en la lista.
+                    const active = all.filter(s => !s.archived).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
                     const archived = all.filter(s => s.archived);
                     if (all.length === 0) return <p className="text-xs text-gray-500">Nessun link creato ancora</p>;
 
