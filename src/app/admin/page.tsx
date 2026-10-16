@@ -3085,6 +3085,15 @@ export default function AdminPage() {
                                                 <span className="text-xs font-medium text-gray-200 truncate">{stats.name}</span>
                                               </div>
                                               <div className="flex items-center gap-2 flex-shrink-0">
+                                                {editingPinKey !== pinKey && (
+                                                  <button
+                                                    onClick={() => { setEditingPinKey(pinKey); setPinDraft(""); }}
+                                                    className="text-[10px] text-gray-500 hover:text-blue-400 font-mono underline decoration-dotted"
+                                                    title="Cambia il PIN"
+                                                  >
+                                                    {stats.pin ? `PIN ${stats.pin}` : "Imposta PIN"}
+                                                  </button>
+                                                )}
                                                 <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
                                                 <span className="text-[10px] text-green-400">{stats.used} entrati</span>
                                                 <button
@@ -3096,6 +3105,33 @@ export default function AdminPage() {
                                                 </button>
                                               </div>
                                             </div>
+                                            {editingPinKey === pinKey && (
+                                              <div className="flex items-center gap-2 px-2 pb-2">
+                                                <input
+                                                  type="text"
+                                                  inputMode="numeric"
+                                                  autoFocus
+                                                  value={pinDraft}
+                                                  onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                                                  onKeyDown={(e) => e.key === "Enter" && handleChangePin(stats.name, stats.eventId)}
+                                                  placeholder="Nuovo PIN"
+                                                  className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 [color-scheme:dark]"
+                                                />
+                                                <button
+                                                  onClick={() => handleChangePin(stats.name, stats.eventId)}
+                                                  disabled={pinSaving}
+                                                  className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-semibold hover:bg-blue-500 disabled:opacity-50"
+                                                >
+                                                  Salva
+                                                </button>
+                                                <button
+                                                  onClick={() => { setEditingPinKey(null); setPinDraft(""); }}
+                                                  className="px-2 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] hover:bg-white/10"
+                                                >
+                                                  Annulla
+                                                </button>
+                                              </div>
+                                            )}
                                             {reactivatingLinkKey === pinKey && (
                                               <div className="flex items-center gap-2 px-2 pb-2">
                                                 <select
