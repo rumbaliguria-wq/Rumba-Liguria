@@ -377,6 +377,12 @@ export default function AdminPage() {
   const [pinSaving, setPinSaving] = useState(false);
   const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
+  // Reasignar un link que ya trabajó en un evento archiviato a un evento
+  // activo nuevo — mismo nombre, mismo link que ya tiene el RR.PP., vuelve
+  // a funcionar para la próxima fiesta.
+  const [reactivatingLinkKey, setReactivatingLinkKey] = useState<string | null>(null);
+  const [reactivateEventId, setReactivateEventId] = useState("");
+  const [reactivateSaving, setReactivateSaving] = useState(false);
   // Accesos de personal de entrada: link+PIN que solo dejan escanear los
   // tickets de UN evento puntual, sin ver nada del panel.
   const [doorPasses, setDoorPasses] = useState<{ id: string; name: string; pin: string; active: boolean; event_id: string; events: { title: string; event_date_iso: string | null; archived: boolean } | null }[]>([]);
@@ -1730,6 +1736,26 @@ export default function AdminPage() {
     finally { setPinSaving(false); }
   };
 
+  const handleReactivateLink = async (name: string, pin: string | null | undefined) => {
+    if (!reactivateEventId) { toast.error("Seleziona un evento"); return; }
+    setReactivateSaving(true);
+    try {
+      const res = await fetch("/api/custom-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: reactivateEventId, name, pin: pin || undefined }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success(`"${name}" riattivato per il nuovo evento!`);
+        setReactivatingLinkKey(null);
+        setReactivateEventId("");
+        fetchReservationsRef.current?.();
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setReactivateSaving(false); }
+  };
+
   const handleDeleteUser = async (id: string, email?: string) => {
     if (!confirm("Sei sicuro di voler eliminare questo utente?")) return;
     // reservation-only users have fake id like "res-email@..." — delete by email from reservations
@@ -3061,8 +3087,36 @@ export default function AdminPage() {
                                               <div className="flex items-center gap-2 flex-shrink-0">
                                                 <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
                                                 <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                                <button
+                                                  onClick={() => { setReactivatingLinkKey(v => v === pinKey ? null : pinKey); setReactivateEventId(""); }}
+                                                  className="text-[10px] text-purple-400 hover:text-purple-300 font-medium underline decoration-dotted"
+                                                  title="Riassegna questo link a un evento attivo"
+                                                >
+                                                  Riattiva
+                                                </button>
                                               </div>
                                             </div>
+                                            {reactivatingLinkKey === pinKey && (
+                                              <div className="flex items-center gap-2 px-2 pb-2">
+                                                <select
+                                                  value={reactivateEventId}
+                                                  onChange={(e) => setReactivateEventId(e.target.value)}
+                                                  className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-[11px] focus:outline-none focus:border-purple-500/40 [color-scheme:dark]"
+                                                >
+                                                  <option value="">Scegli il nuovo evento</option>
+                                                  {events.filter(e => !e.archived).map(ev => (
+                                                    <option key={ev.id} value={ev.id}>{ev.title}</option>
+                                                  ))}
+                                                </select>
+                                                <button
+                                                  onClick={() => handleReactivateLink(stats.name, stats.pin)}
+                                                  disabled={reactivateSaving}
+                                                  className="px-2.5 py-1.5 rounded-lg bg-purple-600 text-white text-[10px] font-semibold hover:bg-purple-500 disabled:opacity-50 flex-shrink-0"
+                                                >
+                                                  Conferma
+                                                </button>
+                                              </div>
+                                            )}
                                             {expandedLinkKey === pinKey && (() => {
                                               const origin = typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com";
                                               const customerLink = `${origin}/?ref=${encodeURIComponent(stats.name)}`;
