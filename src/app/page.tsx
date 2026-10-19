@@ -1573,6 +1573,11 @@ export default function Home() {
                         </div>
                       )}
                       {(() => {
+                        const selectedType = detailEvent.ticket_types?.find((tt) => tt.name === reservation.ticketType);
+                        if (!selectedType?.description) return null;
+                        return <p className="text-xs text-gray-400 mb-3 -mt-1">{selectedType.description}</p>;
+                      })()}
+                      {(() => {
                         // Si el evento tiene algún tipo de biglietto de pago, no se
                         // muestra el contador ni el botón de comprar hasta que elija
                         // uno explícitamente — antes, sin elegir, igual se armaba el
