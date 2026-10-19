@@ -1573,68 +1573,89 @@ export default function Home() {
                         </div>
                       )}
                       {(() => {
+                        // Si el evento tiene algún tipo de biglietto de pago, no se
+                        // muestra el contador ni el botón de comprar hasta que elija
+                        // uno explícitamente — antes, sin elegir, igual se armaba el
+                        // flujo de "gratis" por defecto. Lo gratis puro sigue igual
+                        // que siempre (no hace falta elegir nada para reservar gratis).
+                        const hasPaidTypes = !!detailEvent.ticket_types?.some((tt) => typeof tt.price === "number" && tt.price > 0);
+                        const needsTypeSelection = hasPaidTypes && !reservation.ticketType;
+                        if (needsTypeSelection) {
+                          return (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setReservation(null)}
+                                className="flex-1 py-2.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm active:bg-white/15"
+                              >
+                                {t(lang, "events.cancel")}
+                              </button>
+                            </div>
+                          );
+                        }
                         const isFreeTicket = unitPriceCents(detailEvent.price, detailEvent.ticket_types, reservation.ticketType) === 0;
                         const spotsLeft = detailEvent.max_tickets != null ? detailEvent.max_tickets - (detailEvent.tickets_sold ?? detailEvent.reservation_total) : 999;
                         // Lo gratis es siempre de a una persona — el "Posti max per persona" solo aplica a lo pagado.
                         const maxAllowed = isFreeTicket ? 1 : Math.max(1, detailEvent.max_per_person ? Math.min(spotsLeft, detailEvent.max_per_person) : spotsLeft);
                         return (
-                          <div className="flex items-center gap-3 mb-4 justify-center">
-                            <button
-                              onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.max(1, prev.count - 1) } : null)}
-                              className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15"
-                            >
-                              -
-                            </button>
-                            <span className="text-2xl font-bold w-16 text-center" style={{ color: a }}>
-                              {reservation.count}
-                            </span>
-                            <button
-                              onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.min(maxAllowed, prev.count + 1) } : null)}
-                              disabled={reservation.count >= maxAllowed}
-                              className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed"
-                            >
-                              +
-                            </button>
-                          </div>
+                          <>
+                            <div className="flex items-center gap-3 mb-4 justify-center">
+                              <button
+                                onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.max(1, prev.count - 1) } : null)}
+                                className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15"
+                              >
+                                -
+                              </button>
+                              <span className="text-2xl font-bold w-16 text-center" style={{ color: a }}>
+                                {reservation.count}
+                              </span>
+                              <button
+                                onClick={() => setReservation((prev) => prev ? { ...prev, count: Math.min(maxAllowed, prev.count + 1) } : null)}
+                                disabled={reservation.count >= maxAllowed}
+                                className="w-11 h-11 sm:w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-lg hover:bg-white/10 transition-all active:bg-white/15 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                +
+                              </button>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setReservation(null)}
+                                className="flex-1 py-2.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm active:bg-white/15"
+                              >
+                                {t(lang, "events.cancel")}
+                              </button>
+                              {(() => {
+                                const unit = unitPriceCents(detailEvent.price, detailEvent.ticket_types, reservation.ticketType);
+                                if (unit > 0) {
+                                  return (
+                                    <button
+                                      onClick={() => addToCart(detailEvent)}
+                                      className="flex-1 py-2.5 sm:py-2 rounded-lg text-white transition-all text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
+                                      style={{ background: a }}
+                                    >
+                                      <ShoppingCart size={16} />
+                                      {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, eventPromo(detailEvent)))}
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    onClick={() => confirmReservation(detailEvent)}
+                                    disabled={reserving}
+                                    className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50"
+                                  >
+                                    {reserving ? (
+                                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <CheckCircle size={16} />
+                                    )}
+                                    {t(lang, "reservation.confirm")}
+                                  </button>
+                                );
+                              })()}
+                            </div>
+                          </>
                         );
                       })()}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setReservation(null)}
-                          className="flex-1 py-2.5 sm:py-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition-all text-sm active:bg-white/15"
-                        >
-                          {t(lang, "events.cancel")}
-                        </button>
-                        {(() => {
-                          const unit = unitPriceCents(detailEvent.price, detailEvent.ticket_types, reservation.ticketType);
-                          if (unit > 0) {
-                            return (
-                              <button
-                                onClick={() => addToCart(detailEvent)}
-                                className="flex-1 py-2.5 sm:py-2 rounded-lg text-white transition-all text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
-                                style={{ background: a }}
-                              >
-                                <ShoppingCart size={16} />
-                                {t(lang, "cart.add")} · {formatEUR(lineTotalCents(unit, reservation.count, eventPromo(detailEvent)))}
-                              </button>
-                            );
-                          }
-                          return (
-                            <button
-                              onClick={() => confirmReservation(detailEvent)}
-                              disabled={reserving}
-                              className="flex-1 py-2.5 sm:py-2 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2 active:bg-green-400 disabled:opacity-50"
-                            >
-                              {reserving ? (
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <CheckCircle size={16} />
-                              )}
-                              {t(lang, "reservation.confirm")}
-                            </button>
-                          );
-                        })()}
-                      </div>
                     </div>
                   </div>
                 )}
