@@ -56,7 +56,7 @@ import { useTheme } from "next-themes";
 import OverviewTab from "./_components/OverviewTab";
 import { getEventExpiryUTC } from "@/lib/eventExpiry";
 import { decodeIdType } from "@/lib/cardTypes";
-import { grossUpForStripeFee, netFromGrossStripeFee, formatEUR } from "@/lib/pricing";
+import { grossUpForStripeFee, formatEUR } from "@/lib/pricing";
 import { isQrSafeColor, type TicketType } from "@/lib/ticketTypes";
 import type {
   Event, User, Reservation, GalleryItem, HeroPhoto, RentalItem, RentalConfig,
@@ -304,9 +304,9 @@ export default function AdminPage() {
     const tt = formTicketTypes[i];
     setEditingTicketIndex(i);
     setTicketDraft(tt);
-    setTicketDraftNetPrice(
-      tt.price ? String(tt.feesToBuyer ? (netFromGrossStripeFee(Math.round(tt.price * 100)) / 100) : tt.price) : ""
-    );
+    // `price` ya es siempre el neto (lo que ve el cliente en el sitio) — la
+    // comisión, si corresponde, se agrega aparte recién en Stripe.
+    setTicketDraftNetPrice(tt.price ? String(tt.price) : "");
     setTicketTypeStep("edit");
     setShowTicketTypeForm(true);
   };
@@ -318,11 +318,10 @@ export default function AdminPage() {
     if (isPaid) {
       const netValue = parseFloat(ticketDraftNetPrice.replace(",", "."));
       if (!Number.isFinite(netValue) || netValue <= 0) { toast.error("Inserisci un prezzo valido"); return; }
-      if (ticketDraft.feesToBuyer) {
-        finalDraft.price = grossUpForStripeFee(Math.round(netValue * 100)) / 100;
-      } else {
-        finalDraft.price = netValue;
-      }
+      // Siempre se guarda el neto — es lo que se ve en todo el sitio. La
+      // comisión (si "feesToBuyer" está activo) se calcula al vuelo recién
+      // al armar la sesión de Stripe, como una línea aparte.
+      finalDraft.price = netValue;
     } else {
       finalDraft = { ...finalDraft, price: undefined, feesToBuyer: false };
     }
@@ -4210,8 +4209,8 @@ export default function AdminPage() {
                             const totalCents = ticketDraft.feesToBuyer ? grossUpForStripeFee(Math.round(net * 100)) : Math.round(net * 100);
                             return (
                               <p className="text-xs text-gray-400">
-                                Totale acquirente: <span className="font-bold text-white">{formatEUR(totalCents)}</span>
-                                {ticketDraft.feesToBuyer && <span className="text-gray-600"> (comprende ~1,5% + €0,25 di commissione)</span>}
+                                {ticketDraft.feesToBuyer ? "Totale che pagherà su Stripe" : "Prezzo"}: <span className="font-bold text-white">{formatEUR(totalCents)}</span>
+                                {ticketDraft.feesToBuyer && <span className="text-gray-600"> (sul sito vede solo €{net.toFixed(2)} — la commissione si aggiunge come riga a parte solo su Stripe)</span>}
                               </p>
                             );
                           })()}

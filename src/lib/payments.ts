@@ -3,7 +3,7 @@ import { getServiceClient } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 import { decodeTicketTypes, isQrSafeColor } from "@/lib/ticketTypes";
-import { getUnitPriceCents, lineTotalCents, type PromoConfig } from "@/lib/pricing";
+import { getUnitPriceCents, lineTotalCents, getFeeCents, type PromoConfig } from "@/lib/pricing";
 import { decodeSaleConfig } from "@/lib/saleConfig";
 import { sendEmail, rentalPaymentHtml } from "@/lib/email";
 
@@ -16,6 +16,11 @@ export interface CartItem {
 
 export interface PricedItem extends CartItem {
   unit_cents: number;
+  // Comisión de Stripe por persona, SOLO cuando el tipo de biglietto tiene
+  // "il cliente paga anche la commissione" activado — se cobra como línea
+  // aparte ("Servizio") recién al armar la sesión de Stripe, nunca se suma
+  // a `unit_cents` ni se muestra en el sitio.
+  fee_cents?: number;
   event_title: string;
   promo: PromoConfig | null;
   // Link de pago personalizado generado por el admin (venta de grupo
@@ -99,12 +104,15 @@ export async function priceCart(
       guest_count,
       referral: raw.referral || undefined,
       unit_cents: unitCents,
+      fee_cents: getFeeCents(unitCents, matchedType?.feesToBuyer),
       event_title: event.title,
       promo,
     });
   }
 
-  const totalCents = lines.reduce((s, l) => s + lineTotalCents(l.unit_cents, l.guest_count, l.promo), 0);
+  const totalCents = lines.reduce((s, l) =>
+    s + lineTotalCents(l.unit_cents, l.guest_count, l.promo) + lineTotalCents(l.fee_cents || 0, l.guest_count, l.promo)
+  , 0);
   return { ok: true, lines, totalCents };
 }
 
@@ -160,7 +168,7 @@ export async function fulfillItems(
         event_id: line.event_id,
         event_title: line.event_title,
         reason: err instanceof Error ? err.message : "Errore",
-        refunded_cents: lineTotalCents(line.unit_cents, line.guest_count, line.promo),
+        refunded_cents: lineTotalCents(line.unit_cents, line.guest_count, line.promo) + lineTotalCents(line.fee_cents || 0, line.guest_count, line.promo),
       });
     }
   }

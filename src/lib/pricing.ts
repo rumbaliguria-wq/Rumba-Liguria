@@ -86,12 +86,13 @@ export function grossUpForStripeFee(netCents: number): number {
   return Math.ceil((netCents + STRIPE_FEE_FIXED_CENTS) / (1 - STRIPE_FEE_RATE));
 }
 
-// Inversa: dado lo que se le cobra al comprador, cuánto neto le queda al
-// organizador — solo para mostrarlo en el form de admin al editar un
-// biglietto que ya tenía la comisión trasladada.
-export function netFromGrossStripeFee(grossCents: number): number {
-  if (grossCents <= 0) return 0;
-  return Math.round(grossCents * (1 - STRIPE_FEE_RATE) - STRIPE_FEE_FIXED_CENTS);
+// Cuánto hay que sumarle al precio neto como línea aparte de "Servizio" para
+// que, sumadas las dos, el comprador termine pagando el bruto correcto. El
+// precio neto (`price`) es siempre lo único que se ve en el sitio — esta
+// diferencia solo aparece como línea separada al armar la sesión de Stripe.
+export function getFeeCents(netUnitCents: number, feesToBuyer: boolean | undefined): number {
+  if (!feesToBuyer || netUnitCents <= 0) return 0;
+  return grossUpForStripeFee(netUnitCents) - netUnitCents;
 }
 
 export function formatEUR(cents: number): string {

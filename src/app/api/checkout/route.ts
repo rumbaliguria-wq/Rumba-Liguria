@@ -47,19 +47,35 @@ export async function POST(req: NextRequest) {
       customer_email: email,
       // El importe ya viene con el descuento del 3x2 aplicado (si corresponde)
       // metido en una sola línea — Stripe no sabe nada de la promo, solo ve
-      // el total final a cobrar por ese evento.
+      // el total final a cobrar por ese evento. Si el tipo de biglietto tiene
+      // la comisión a cargo del comprador, se agrega como línea "Servizio"
+      // aparte — en el sitio siempre se vio solo el precio limpio, esto es
+      // lo único que lo desglosa, y recién acá en Stripe.
       line_items: priced.lines
         .filter((l) => l.unit_cents > 0)
-        .map((l) => ({
-          quantity: 1,
-          price_data: {
-            currency: "eur",
-            unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo),
-            product_data: {
-              name: `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo ? ` (promo ${l.promo.group}x${l.promo.group - l.promo.free})` : ""}`,
+        .flatMap((l) => {
+          const name = `${l.ticket_type ? `${l.event_title} — ${l.ticket_type}` : l.event_title} × ${l.guest_count}${l.promo ? ` (promo ${l.promo.group}x${l.promo.group - l.promo.free})` : ""}`;
+          const items = [{
+            quantity: 1,
+            price_data: {
+              currency: "eur",
+              unit_amount: lineTotalCents(l.unit_cents, l.guest_count, l.promo),
+              product_data: { name },
             },
-          },
-        })),
+          }];
+          const feeTotal = lineTotalCents(l.fee_cents || 0, l.guest_count, l.promo);
+          if (feeTotal > 0) {
+            items.push({
+              quantity: 1,
+              price_data: {
+                currency: "eur",
+                unit_amount: feeTotal,
+                product_data: { name: "Servizio" },
+              },
+            });
+          }
+          return items;
+        }),
       metadata: { payment_id: payment.id },
       // Genera un recibo/factura en PDF por cada pago. Las plantillas que se
       // arman en el Dashboard de Stripe no se aplican acá (son solo para
