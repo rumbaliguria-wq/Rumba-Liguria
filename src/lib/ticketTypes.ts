@@ -23,13 +23,24 @@ export function encodeTicketTypes(details: string, types: TicketType[]): string 
   return clean + TT_MARKER + JSON.stringify(types);
 }
 
+// El orden real guardado en details es "...|||TTYPES:[...]|||SALE:{...}" (el
+// marcador de SALE se agrega DESPUÉS del de TTYPES). La mayoría de quien
+// llama a esto primero saca el SALE con decodeSaleConfig y recién después
+// decodifica esto — pero no todos lo hacían así, y si no se saca antes el
+// JSON.parse se rompía en silencio (try/catch) y el evento quedaba SIN
+// tipos de biglietto, osea que se cobraba como gratis. Para no depender de
+// que cada lugar llame en el orden correcto, acá mismo se recorta el
+// "|||SALE:" si todavía viene pegado.
 export function decodeTicketTypes(details: string): { details: string; types: TicketType[] } {
   if (!details) return { details: "", types: [] };
   const idx = details.indexOf(TT_MARKER);
   if (idx === -1) return { details, types: [] };
   const cleanDetails = details.slice(0, idx);
+  let jsonPart = details.slice(idx + TT_MARKER.length);
+  const saleIdx = jsonPart.indexOf("|||SALE:");
+  if (saleIdx !== -1) jsonPart = jsonPart.slice(0, saleIdx);
   try {
-    const types = JSON.parse(details.slice(idx + TT_MARKER.length));
+    const types = JSON.parse(jsonPart);
     return { details: cleanDetails, types: Array.isArray(types) ? types : [] };
   } catch {
     return { details: cleanDetails, types: [] };
