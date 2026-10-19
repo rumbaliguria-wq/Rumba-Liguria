@@ -23,5 +23,11 @@ export async function GET(
     .select("id", { count: "exact", head: true })
     .eq("event_id", id);
 
-  return NextResponse.json({ reservations: reservations || 0, tessere: tessere || 0 });
+  const { data: event } = await supabase
+    .from("events")
+    .select("extra_entries")
+    .eq("id", id)
+    .maybeSingle();
+
+  return NextResponse.json({ reservations: reservations || 0, tessere: tessere || 0, extra: event?.extra_entries || 0 });
 }

@@ -277,6 +277,7 @@ export default function AdminPage() {
   const [reservationSearch, setReservationSearch] = useState("");
   const [statsEvent, setStatsEvent] = useState<Event | null>(null);
   const [statsTessereCount, setStatsTessereCount] = useState<number | null>(null);
+  const [statsExtraCount, setStatsExtraCount] = useState<number | null>(null);
   const [tessereEntriesOpen, setTessereEntriesOpen] = useState(false);
   const [tessereEntries, setTessereEntries] = useState<{ full_name: string; city: string | null; id_type: string | null; scanned_at: string }[] | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
@@ -416,7 +417,8 @@ export default function AdminPage() {
   const [showScanner, setShowScanner] = useState(false);
   const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean; isGroup?: boolean; groupLabel?: string; groupCount?: number; groupMax?: number | null } | null>(null);
   const [cardScanResult, setCardScanResult] = useState<{ full_name: string; photo_url: string | null; id_type: string | null; visit_count: number; logged: boolean; eventTitle?: string } | null>(null);
-  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number } | null>(null);
+  const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number; extra: number } | null>(null);
+  const [extraEntryLoading, setExtraEntryLoading] = useState(false);
   const [scanConfirming, setScanConfirming] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
@@ -614,6 +616,21 @@ export default function AdminPage() {
     } catch { setScanError("Errore di connessione"); setScanResult(null); }
     finally { setScanConfirming(false); }
   }, [scanResult, scanEventId]);
+
+  const handleExtraEntry = useCallback(async (delta: 1 | -1) => {
+    if (!scanEventId || extraEntryLoading) return;
+    setExtraEntryLoading(true);
+    try {
+      const res = await fetch(`/api/events/${scanEventId}/extra-entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delta }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) setLiveCounts((prev) => prev ? { ...prev, extra: d.extra_entries } : prev);
+    } catch { /* se puede reintentar con otro tap */ }
+    finally { setExtraEntryLoading(false); }
+  }, [scanEventId, extraEntryLoading]);
 
   const startScanner = useCallback(async () => {
     setScanResult(null); setCardScanResult(null); setScanError(null); setScanSuccess(false); setScanLoading(false); setScanConfirming(false);
@@ -4325,9 +4342,10 @@ export default function AdminPage() {
                             onClick={() => {
                               setStatsEvent(event);
                               setStatsTessereCount(null);
+                              setStatsExtraCount(null);
                               setTessereEntriesOpen(false);
                               setTessereEntries(null);
-                              fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                              fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
                             }}
                             title="Statistiche evento"
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
@@ -4410,9 +4428,10 @@ export default function AdminPage() {
                               onClick={() => {
                                 setStatsEvent(event);
                                 setStatsTessereCount(null);
+                                setStatsExtraCount(null);
                                 setTessereEntriesOpen(false);
                                 setTessereEntries(null);
-                                fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => setStatsTessereCount(d.tessere ?? 0)).catch(() => {});
+                                fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
                               }}
                               title="Statistiche evento"
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 transition-all text-[11px] font-medium"
@@ -5499,6 +5518,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-center gap-4 px-4 py-2 bg-black/80 border-b border-white/10 flex-shrink-0 text-xs">
               <span className="flex items-center gap-1.5 text-blue-400"><Ticket size={12} /> Prenotazioni: <strong className="text-white">{liveCounts.reservations}</strong></span>
               <span className="flex items-center gap-1.5 text-purple-400"><IdCard size={12} /> Tessere: <strong className="text-white">{liveCounts.tessere}</strong></span>
+              <span className="flex items-center gap-1.5 text-orange-400"><Plus size={12} /> Extra: <strong className="text-white">{liveCounts.extra}</strong></span>
             </div>
           )}
           <div className="relative flex-1 overflow-hidden bg-black flex items-center justify-center">
@@ -5513,6 +5533,13 @@ export default function AdminPage() {
                   <div className="absolute bottom-0 right-0 w-10 h-10 border-green-400" style={{ borderBottomWidth: 3, borderRightWidth: 3, borderBottomStyle: "solid", borderRightStyle: "solid", borderRadius: "0 0 8px 0" }} />
                 </div>
                 <p className="absolute bottom-24 text-green-300 text-sm font-medium bg-black/50 px-4 py-2 rounded-full">Inquadra il codice QR</p>
+                <button
+                  onClick={() => handleExtraEntry(1)}
+                  disabled={extraEntryLoading}
+                  className="absolute bottom-8 pointer-events-auto flex items-center gap-2 px-5 py-2.5 rounded-full bg-orange-500 text-white font-bold text-sm shadow-lg active:scale-95 transition-all disabled:opacity-60"
+                >
+                  <Plus size={16} /> Extra
+                </button>
               </div>
             )}
             {scanLoading && (
@@ -5927,6 +5954,12 @@ export default function AdminPage() {
                   <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><Users size={13} className="text-pink-400" /> Entrate con Codice Gruppo</span>
                     <span className="text-sm font-bold text-pink-400">{groupEntriesCount}</span>
+                  </div>
+                )}
+                {statsExtraCount !== null && statsExtraCount > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><Plus size={13} className="text-orange-400" /> Entrate extra (senza prenotazione)</span>
+                    <span className="text-sm font-bold text-orange-400">{statsExtraCount}</span>
                   </div>
                 )}
                 {fillRate !== null && (

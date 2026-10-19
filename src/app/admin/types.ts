@@ -34,6 +34,7 @@ export interface Event {
   created_at: string;
   reservation_total?: number;
   reservation_used?: number;
+  extra_entries?: number;
 }
 
 export interface User {
