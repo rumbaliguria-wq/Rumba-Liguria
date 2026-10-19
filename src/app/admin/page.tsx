@@ -313,6 +313,13 @@ export default function AdminPage() {
 
   const saveTicketTypeDraft = () => {
     if (!ticketDraft.name.trim()) { toast.error("Il nome del biglietto è obbligatorio"); return; }
+    // El nome es la clave que usa todo el sistema para distinguir un tipo de
+    // otro (precio, cupo, colore, QR, selección del cliente) — si dos
+    // biglietti del mismo evento tienen el mismo nombre, el sitio no puede
+    // saber cuál es cuál y se rompe de formas impredecibles.
+    const nameLower = ticketDraft.name.trim().toLowerCase();
+    const duplicate = formTicketTypes.some((t, i) => i !== editingTicketIndex && t.name.trim().toLowerCase() === nameLower);
+    if (duplicate) { toast.error("Già esiste un biglietto con questo nome — scegline uno diverso."); return; }
     const isPaid = ticketDraft.price !== undefined || ticketDraftNetPrice.trim() !== "";
     let finalDraft: TicketType = { ...ticketDraft };
     if (isPaid) {
