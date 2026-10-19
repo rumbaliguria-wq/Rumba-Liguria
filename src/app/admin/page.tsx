@@ -46,6 +46,7 @@ import {
     DoorOpen,
     Ban,
     IdCard,
+    Minus,
   } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -5533,13 +5534,25 @@ export default function AdminPage() {
                   <div className="absolute bottom-0 right-0 w-10 h-10 border-green-400" style={{ borderBottomWidth: 3, borderRightWidth: 3, borderBottomStyle: "solid", borderRightStyle: "solid", borderRadius: "0 0 8px 0" }} />
                 </div>
                 <p className="absolute bottom-24 text-green-300 text-sm font-medium bg-black/50 px-4 py-2 rounded-full">Inquadra il codice QR</p>
-                <button
-                  onClick={() => handleExtraEntry(1)}
-                  disabled={extraEntryLoading}
-                  className="absolute bottom-8 pointer-events-auto flex items-center gap-2 px-5 py-2.5 rounded-full bg-orange-500 text-white font-bold text-sm shadow-lg active:scale-95 transition-all disabled:opacity-60"
-                >
-                  <Plus size={16} /> Extra
-                </button>
+                <div className="absolute bottom-8 pointer-events-auto flex items-center gap-3 bg-black/60 px-3 py-2 rounded-full shadow-lg">
+                  <button
+                    onClick={() => handleExtraEntry(-1)}
+                    disabled={extraEntryLoading}
+                    className="w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center active:scale-95 transition-all disabled:opacity-40"
+                  >
+                    <Minus size={18} />
+                  </button>
+                  <span className="text-orange-400 text-xs font-semibold text-center leading-tight">
+                    Extra<br />{liveCounts?.extra ?? 0}
+                  </span>
+                  <button
+                    onClick={() => handleExtraEntry(1)}
+                    disabled={extraEntryLoading}
+                    className="w-11 h-11 rounded-full bg-orange-500 text-white flex items-center justify-center active:scale-95 transition-all disabled:opacity-40"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
               </div>
             )}
             {scanLoading && (
