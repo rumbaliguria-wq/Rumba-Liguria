@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
           custom_fields: [
             { name: "Partita IVA", value: "IT03098620994" },
             { name: "Codice Fiscale", value: "MJLPRR89P17G605A" },
+            { name: "Codice ATECO", value: "82.30.09" },
           ],
         },
       },
