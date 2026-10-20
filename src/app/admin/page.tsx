@@ -214,6 +214,7 @@ export default function AdminPage() {
   const [rentalPaymentPrice, setRentalPaymentPrice] = useState("");
   const [rentalPaymentCustomerName, setRentalPaymentCustomerName] = useState("");
   const [rentalPaymentEmail, setRentalPaymentEmail] = useState("");
+  const [rentalPaymentFeesToBuyer, setRentalPaymentFeesToBuyer] = useState(false);
   const [rentalPaymentGenerating, setRentalPaymentGenerating] = useState(false);
   const [rentalPaymentLink, setRentalPaymentLink] = useState<string | null>(null);
   const [rentalSaving, setRentalSaving] = useState(false);
@@ -365,6 +366,7 @@ export default function AdminPage() {
   const [cashSaleGenerating, setCashSaleGenerating] = useState(false);
   const [cashSaleCodes, setCashSaleCodes] = useState<{ code: string }[]>([]);
   const [cashSaleMethod, setCashSaleMethod] = useState<"contanti" | "carta">("contanti");
+  const [cashSaleFeesToBuyer, setCashSaleFeesToBuyer] = useState(false);
   const [customPaymentLink, setCustomPaymentLink] = useState<string | null>(null);
   const [cashSaleDownloadingAll, setCashSaleDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
@@ -1426,6 +1428,7 @@ export default function AdminPage() {
           total_price: price,
           customer_name: cashSaleName.trim() || undefined,
           customer_email: cashSaleEmail.trim(),
+          fees_to_buyer: cashSaleFeesToBuyer,
         }),
       });
       const d = await res.json();
@@ -1443,6 +1446,7 @@ export default function AdminPage() {
     setRentalPaymentPrice(guessed);
     setRentalPaymentCustomerName("");
     setRentalPaymentEmail("");
+    setRentalPaymentFeesToBuyer(false);
     setRentalPaymentLink(null);
   };
 
@@ -1462,6 +1466,7 @@ export default function AdminPage() {
           total_price: price,
           customer_name: rentalPaymentCustomerName.trim() || undefined,
           customer_email: rentalPaymentEmail.trim(),
+          fees_to_buyer: rentalPaymentFeesToBuyer,
         }),
       });
       const d = await res.json();
@@ -2731,6 +2736,17 @@ export default function AdminPage() {
                     />
                   </div>
                 </div>
+                {cashSaleMethod === "carta" && (
+                  <div
+                    onClick={() => setCashSaleFeesToBuyer((v) => !v)}
+                    className="flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer bg-white/5 border border-white/10 mb-3"
+                  >
+                    <div className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${cashSaleFeesToBuyer ? "bg-blue-500" : "bg-white/10"}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${cashSaleFeesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </div>
+                    <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe</span>
+                  </div>
+                )}
                 <div className="flex items-end gap-3 mb-1">
                   <div className="flex-1">
                     <label className="text-xs text-gray-400 mb-1 block">
@@ -5205,6 +5221,15 @@ export default function AdminPage() {
                                   <label className="text-[10px] text-gray-500 mb-1 block">Email cliente *</label>
                                   <input value={rentalPaymentEmail} onChange={e => setRentalPaymentEmail(e.target.value)} placeholder="mario@email.com" className="w-full px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40" />
                                 </div>
+                              </div>
+                              <div
+                                onClick={() => setRentalPaymentFeesToBuyer((v) => !v)}
+                                className="flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer bg-white/5 border border-white/10"
+                              >
+                                <div className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rentalPaymentFeesToBuyer ? "bg-blue-500" : "bg-white/10"}`}>
+                                  <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${rentalPaymentFeesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
+                                </div>
+                                <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe</span>
                               </div>
                               <button onClick={handleGenerateRentalPaymentLink} disabled={rentalPaymentGenerating} className="w-full py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 disabled:opacity-40 transition-all active:scale-95">
                                 {rentalPaymentGenerating ? "Generazione..." : "Genera link di pagamento"}

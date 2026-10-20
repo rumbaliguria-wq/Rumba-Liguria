@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase";
 import { getStripe, getSiteOrigin } from "@/lib/stripe";
+import { getFeeCents, lineTotalCents } from "@/lib/pricing";
 
 // Link de pago personalizado: el admin negoció un precio total (p.ej. un
 // descuento por grupo grande) y quiere que ESA persona pague con tarjeta a
@@ -9,7 +10,7 @@ import { getStripe, getSiteOrigin } from "@/lib/stripe";
 // siempre se encarga de entregar las entradas + factura — acá solo se arma
 // la sesión de pago con el total exacto acordado.
 export async function POST(req: NextRequest) {
-  const { event_id, guest_count, total_price, customer_name, customer_email } = await req.json().catch(() => ({}));
+  const { event_id, guest_count, total_price, customer_name, customer_email, fees_to_buyer } = await req.json().catch(() => ({}));
 
   const count = Number(guest_count);
   const price = Number(total_price);
@@ -51,6 +52,11 @@ export async function POST(req: NextRequest) {
   // Precio por persona, solo para que un reembolso parcial (si algo falla a
   // mitad de pago) reparta el importe de forma razonable.
   const unitCents = Math.max(1, Math.round(totalCents / count));
+  // Si el admin eligió que la comisión la pague el cliente, se cobra como
+  // línea "Servizio" aparte — el precio acordado (unitCents) es siempre lo
+  // que termina recibiendo el negocio, igual que con los biglietti del sitio.
+  const feeUnitCents = getFeeCents(unitCents, !!fees_to_buyer);
+  const feeTotalCents = lineTotalCents(feeUnitCents, count, null);
 
   const { data: payment, error: insertError } = await supabase
     .from("payments")
@@ -60,11 +66,12 @@ export async function POST(req: NextRequest) {
         event_id,
         guest_count: count,
         unit_cents: unitCents,
+        fee_cents: feeUnitCents,
         event_title: event.title,
         promo: null,
         admin_override: true,
       }],
-      amount_cents: totalCents,
+      amount_cents: totalCents + feeTotalCents,
     })
     .select("id")
     .single();
@@ -78,16 +85,26 @@ export async function POST(req: NextRequest) {
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       customer_email: email,
-      line_items: [{
-        quantity: 1,
-        price_data: {
-          currency: "eur",
-          unit_amount: totalCents,
-          product_data: {
-            name: `${event.title} × ${count}${customer_name ? ` — ${customer_name}` : ""}`,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "eur",
+            unit_amount: totalCents,
+            product_data: {
+              name: `${event.title} × ${count}${customer_name ? ` — ${customer_name}` : ""}`,
+            },
           },
         },
-      }],
+        ...(feeTotalCents > 0 ? [{
+          quantity: 1,
+          price_data: {
+            currency: "eur",
+            unit_amount: feeTotalCents,
+            product_data: { name: "Servizio" },
+          },
+        }] : []),
+      ],
       metadata: { payment_id: payment.id },
       invoice_creation: {
         enabled: true,
