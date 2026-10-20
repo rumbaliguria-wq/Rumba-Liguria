@@ -1289,11 +1289,11 @@ export default function AdminPage() {
   };
 
   const handleCancelReservation = async (id: string) => {
-    if (!confirm("Sei sicuro di voler cancellare questa prenotazione?")) return;
+    if (!confirm("Eliminare definitivamente questa prenotazione? Non si potrà più recuperare.")) return;
     const res = await fetch(`/api/reservations/${id}`, { method: "DELETE" });
     if (res.ok) {
-      toast.success("Prenotazione cancellata!");
-      setReservations(prev => prev.map(x => x.id === id ? { ...x, status: "cancelled" } : x));
+      toast.success("Prenotazione eliminata!");
+      setReservations(prev => prev.filter(x => x.id !== id));
     } else {
       const data = await res.json().catch(() => ({}));
       toast.error(data.error || "Errore cancellazione");
@@ -5897,12 +5897,12 @@ export default function AdminPage() {
                         {r.status !== "cancelled" && (
                           <button
                             onClick={async () => {
-                              if (!confirm("Eliminare questa prenotazione?")) return;
+                              if (!confirm("Eliminare definitivamente questa prenotazione? Non si potrà più recuperare.")) return;
                               const res = await fetch(`/api/reservations/${r.id}`, { method: "DELETE" });
                               if (res.ok) {
                                 toast.success("Prenotazione eliminata!");
-                                setReservations(prev => prev.map(x => x.id === r.id ? { ...x, status: "cancelled" } : x));
-                                setStatsDrilldown(prev => prev ? { ...prev, list: prev.list.map(x => x.id === r.id ? { ...x, status: "cancelled" } : x) } : prev);
+                                setReservations(prev => prev.filter(x => x.id !== r.id));
+                                setStatsDrilldown(prev => prev ? { ...prev, list: prev.list.filter(x => x.id !== r.id) } : prev);
                               } else {
                                 const data = await res.json().catch(() => ({}));
                                 toast.error(data.error || "Errore eliminazione");

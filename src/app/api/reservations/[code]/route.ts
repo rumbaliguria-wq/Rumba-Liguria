@@ -199,7 +199,7 @@ export async function PATCH(
   return NextResponse.json({ success: true, newStatus });
 }
 
-// Admin: cancel a reservation by its UUID id (passed as "code" param for routing)
+// Admin: elimina definitivamente una reserva (por UUID, pasado como "code" acá por la ruta)
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
@@ -211,7 +211,7 @@ export async function DELETE(
 
   const query = supabase
     .from("reservations")
-    .update({ status: "cancelled" });
+    .delete();
 
   if (isUUID) {
     query.or(`id.eq.${id},code.eq.${id}`);
