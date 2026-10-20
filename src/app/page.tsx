@@ -68,6 +68,7 @@ interface CartLine {
   unitCents: number;
   maxPerPerson?: number | null;
   promo?: PromoConfig | null;
+  terms?: string;
 }
 
 interface GalleryItem {
@@ -181,6 +182,7 @@ export default function Home() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
   const [showCart, setShowCart] = useState(false);
+  const [acceptedCartTerms, setAcceptedCartTerms] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
@@ -705,6 +707,7 @@ export default function Home() {
       unitCents: unitPriceCents(event.price, event.ticket_types, reservation.ticketType),
       maxPerPerson: event.max_per_person,
       promo: eventPromo(event),
+      terms: event.ticket_types?.find((tt) => tt.name === reservation.ticketType)?.terms,
     };
     // Una sola línea por evento: el servidor no permite reservar dos veces el mismo evento.
     setCart((prev) => [...prev.filter((l) => l.eventId !== event.id), line]);
@@ -724,6 +727,7 @@ export default function Home() {
 
   const cartTotalCents = cart.reduce((s, l) => s + lineTotalCents(l.unitCents, l.count, l.promo), 0);
   const cartGuests = cart.reduce((s, l) => s + l.count, 0);
+  const cartTermsList = Array.from(new Set(cart.map((l) => l.terms).filter((t): t is string => !!t)));
 
   const checkout = async () => {
     if (!userEmail) {
@@ -2211,9 +2215,25 @@ export default function Home() {
                       <span className="text-sm text-gray-400">{t(lang, "cart.total")}</span>
                       <span className="text-xl font-extrabold text-white">{formatEUR(cartTotalCents)}</span>
                     </div>
+                    {cartTermsList.length > 0 && (
+                      <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10 space-y-2">
+                        <div className="text-xs text-gray-400 max-h-24 overflow-y-auto space-y-1">
+                          {cartTermsList.map((txt, i) => <p key={i}>{txt}</p>)}
+                        </div>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={acceptedCartTerms}
+                            onChange={(e) => setAcceptedCartTerms(e.target.checked)}
+                            className="mt-0.5 flex-shrink-0"
+                          />
+                          <span className="text-xs text-gray-300">{t(lang, "cart.acceptTerms")}</span>
+                        </label>
+                      </div>
+                    )}
                     <button
                       onClick={checkout}
-                      disabled={checkingOut}
+                      disabled={checkingOut || (cartTermsList.length > 0 && !acceptedCartTerms)}
                       className="w-full py-3.5 rounded-xl text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-60"
                       style={{ background: `linear-gradient(90deg, ${a}, ${a}cc)`, boxShadow: `0 10px 28px ${a}30` }}>
                       {checkingOut ? (

@@ -21,6 +21,10 @@ export interface PricedItem extends CartItem {
   // aparte ("Servizio") recién al armar la sesión de Stripe, nunca se suma
   // a `unit_cents` ni se muestra en el sitio.
   fee_cents?: number;
+  // Términos y condiciones del tipo de biglietto (si tiene) — el cliente ya
+  // los aceptó en el Carrello; acá se arrastran solo para poder mandarlos
+  // también a la propia página de pago de Stripe y a la factura.
+  terms?: string;
   event_title: string;
   promo: PromoConfig | null;
   // Link de pago personalizado generado por el admin (venta de grupo
@@ -105,6 +109,7 @@ export async function priceCart(
       referral: raw.referral || undefined,
       unit_cents: unitCents,
       fee_cents: getFeeCents(unitCents, matchedType?.feesToBuyer),
+      terms: matchedType?.terms || undefined,
       event_title: event.title,
       promo,
     });

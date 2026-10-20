@@ -215,6 +215,7 @@ export default function AdminPage() {
   const [rentalPaymentCustomerName, setRentalPaymentCustomerName] = useState("");
   const [rentalPaymentEmail, setRentalPaymentEmail] = useState("");
   const [rentalPaymentFeesToBuyer, setRentalPaymentFeesToBuyer] = useState(false);
+  const [rentalPaymentTerms, setRentalPaymentTerms] = useState("");
   const [rentalPaymentGenerating, setRentalPaymentGenerating] = useState(false);
   const [rentalPaymentLink, setRentalPaymentLink] = useState<string | null>(null);
   const [rentalSaving, setRentalSaving] = useState(false);
@@ -367,6 +368,7 @@ export default function AdminPage() {
   const [cashSaleCodes, setCashSaleCodes] = useState<{ code: string }[]>([]);
   const [cashSaleMethod, setCashSaleMethod] = useState<"contanti" | "carta">("contanti");
   const [cashSaleFeesToBuyer, setCashSaleFeesToBuyer] = useState(false);
+  const [cashSaleTerms, setCashSaleTerms] = useState("");
   const [customPaymentLink, setCustomPaymentLink] = useState<string | null>(null);
   const [cashSaleDownloadingAll, setCashSaleDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
@@ -1429,6 +1431,7 @@ export default function AdminPage() {
           customer_name: cashSaleName.trim() || undefined,
           customer_email: cashSaleEmail.trim(),
           fees_to_buyer: cashSaleFeesToBuyer,
+          terms: cashSaleTerms.trim() || undefined,
         }),
       });
       const d = await res.json();
@@ -1447,6 +1450,7 @@ export default function AdminPage() {
     setRentalPaymentCustomerName("");
     setRentalPaymentEmail("");
     setRentalPaymentFeesToBuyer(false);
+    setRentalPaymentTerms("");
     setRentalPaymentLink(null);
   };
 
@@ -1467,6 +1471,7 @@ export default function AdminPage() {
           customer_name: rentalPaymentCustomerName.trim() || undefined,
           customer_email: rentalPaymentEmail.trim(),
           fees_to_buyer: rentalPaymentFeesToBuyer,
+          terms: rentalPaymentTerms.trim() || undefined,
         }),
       });
       const d = await res.json();
@@ -2745,6 +2750,20 @@ export default function AdminPage() {
                       <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${cashSaleFeesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
                     </div>
                     <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe</span>
+                  </div>
+                )}
+                {cashSaleMethod === "carta" && (
+                  <div className="mb-3">
+                    <label className="text-xs text-gray-400 mb-1 block">Termini e condizioni (opzionale)</label>
+                    <textarea
+                      value={cashSaleTerms}
+                      onChange={(e) => setCashSaleTerms(e.target.value)}
+                      placeholder="es. In caso di smarrimento del biglietto non è previsto rimborso."
+                      rows={2}
+                      maxLength={1000}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/40 resize-none"
+                    />
+                    <p className="text-[10px] text-gray-600 mt-1">Il cliente dovrà accettarli nella pagina di pagamento Stripe.</p>
                   </div>
                 )}
                 <div className="flex items-end gap-3 mb-1">
@@ -4172,6 +4191,18 @@ export default function AdminPage() {
                         />
                       </div>
                       <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Termini e condizioni (opzionale)</label>
+                        <textarea
+                          value={ticketDraft.terms || ""}
+                          onChange={(e) => setTicketDraft((p) => ({ ...p, terms: e.target.value }))}
+                          placeholder="es. In caso di smarrimento del biglietto non è previsto rimborso."
+                          rows={2}
+                          maxLength={1000}
+                          className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 resize-none"
+                        />
+                        <p className="text-[10px] text-gray-600 mt-1">Il cliente dovrà accettarli nel carrello prima di pagare.</p>
+                      </div>
+                      <div>
                         <label className="text-xs text-gray-400 mb-1 block">Quantità (vuoto = senza limite)</label>
                         <input
                           type="number"
@@ -5230,6 +5261,17 @@ export default function AdminPage() {
                                   <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${rentalPaymentFeesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
                                 </div>
                                 <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe</span>
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-gray-500 mb-1 block">Termini e condizioni (opzionale)</label>
+                                <textarea
+                                  value={rentalPaymentTerms}
+                                  onChange={(e) => setRentalPaymentTerms(e.target.value)}
+                                  placeholder="es. Il noleggio non prevede rimborso in caso di danni."
+                                  rows={2}
+                                  maxLength={1000}
+                                  className="w-full px-2.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 resize-none"
+                                />
                               </div>
                               <button onClick={handleGenerateRentalPaymentLink} disabled={rentalPaymentGenerating} className="w-full py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 disabled:opacity-40 transition-all active:scale-95">
                                 {rentalPaymentGenerating ? "Generazione..." : "Genera link di pagamento"}

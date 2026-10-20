@@ -32,6 +32,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ free: true, result });
   }
 
+  // Términos y condiciones del/los tipo/s de biglietto en el carrito (si
+  // tienen) — ya se aceptaron con la casilla obligatoria en el Carrello;
+  // esto los manda también a la propia página de pago de Stripe (casilla
+  // nativa) y un pedacito queda al pie de la factura.
+  const termsList = [...new Set(priced.lines.map((l) => l.terms).filter((t): t is string => !!t))];
+  const termsText = termsList.join(" · ").slice(0, 1200);
+
   const { data: payment, error: insertError } = await supabase
     .from("payments")
     .insert({ user_email: email, items: priced.lines, amount_cents: priced.totalCents })
@@ -77,6 +84,10 @@ export async function POST(req: NextRequest) {
           return items;
         }),
       metadata: { payment_id: payment.id },
+      ...(termsText ? {
+        consent_collection: { terms_of_service: "required" as const },
+        custom_text: { terms_of_service_acceptance: { message: termsText } },
+      } : {}),
       // Genera un recibo/factura en PDF por cada pago. Las plantillas que se
       // arman en el Dashboard de Stripe no se aplican acá (son solo para
       // facturas creadas a mano ahí), así que los datos fiscales van directo
@@ -89,6 +100,7 @@ export async function POST(req: NextRequest) {
             { name: "Codice Fiscale", value: "MJLPRR89P17G605A" },
             { name: "Codice ATECO", value: "82.30.09" },
           ],
+          ...(termsText ? { footer: `Termini e condizioni: ${termsText}`.slice(0, 5000) } : {}),
         },
       },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,

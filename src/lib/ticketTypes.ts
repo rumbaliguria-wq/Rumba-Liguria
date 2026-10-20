@@ -12,6 +12,10 @@ export interface TicketType {
   // comisión" al editar — el precio ya cobrado (bruto) sigue siendo `price`,
   // así que nada más en la app necesita saber de esto.
   feesToBuyer?: boolean;
+  // Se muestra en el Carrello (con casilla obligatoria para aceptar) y, si
+  // está, también se manda a Stripe como el texto del checkbox de términos
+  // en la propia página de pago, y un pedacito queda al pie de la factura.
+  terms?: string;
 }
 
 const TT_MARKER = "|||TTYPES:";

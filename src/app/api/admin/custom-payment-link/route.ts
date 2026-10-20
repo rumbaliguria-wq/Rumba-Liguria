@@ -10,7 +10,8 @@ import { getFeeCents, lineTotalCents } from "@/lib/pricing";
 // siempre se encarga de entregar las entradas + factura — acá solo se arma
 // la sesión de pago con el total exacto acordado.
 export async function POST(req: NextRequest) {
-  const { event_id, guest_count, total_price, customer_name, customer_email, fees_to_buyer } = await req.json().catch(() => ({}));
+  const { event_id, guest_count, total_price, customer_name, customer_email, fees_to_buyer, terms } = await req.json().catch(() => ({}));
+  const termsText = String(terms || "").trim().slice(0, 1200);
 
   const count = Number(guest_count);
   const price = Number(total_price);
@@ -106,6 +107,10 @@ export async function POST(req: NextRequest) {
         }] : []),
       ],
       metadata: { payment_id: payment.id },
+      ...(termsText ? {
+        consent_collection: { terms_of_service: "required" as const },
+        custom_text: { terms_of_service_acceptance: { message: termsText } },
+      } : {}),
       invoice_creation: {
         enabled: true,
         invoice_data: {
@@ -113,6 +118,7 @@ export async function POST(req: NextRequest) {
             { name: "Partita IVA", value: "IT03098620994" },
             { name: "Codice Fiscale", value: "MJLPRR89P17G605A" },
           ],
+          ...(termsText ? { footer: `Termini e condizioni: ${termsText}`.slice(0, 5000) } : {}),
         },
       },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,

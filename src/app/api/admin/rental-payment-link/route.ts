@@ -7,9 +7,10 @@ import { getFeeCents } from "@/lib/pricing";
 // que pague con tarjeta a distancia. No hay entrada/QR que entregar — solo
 // la factura con los datos fiscales, igual que en "Vendita in Contanti".
 export async function POST(req: NextRequest) {
-  const { item_name, total_price, customer_name, customer_email, fees_to_buyer } = await req.json().catch(() => ({}));
+  const { item_name, total_price, customer_name, customer_email, fees_to_buyer, terms } = await req.json().catch(() => ({}));
 
   const name = String(item_name || "").trim();
+  const termsText = String(terms || "").trim().slice(0, 1200);
   const price = Number(total_price);
   const email = String(customer_email || "").trim().toLowerCase();
 
@@ -53,6 +54,10 @@ export async function POST(req: NextRequest) {
         }] : []),
       ],
       metadata: { kind: "rental", item_name: name, customer_name: customer_name || "" },
+      ...(termsText ? {
+        consent_collection: { terms_of_service: "required" as const },
+        custom_text: { terms_of_service_acceptance: { message: termsText } },
+      } : {}),
       invoice_creation: {
         enabled: true,
         invoice_data: {
@@ -60,6 +65,7 @@ export async function POST(req: NextRequest) {
             { name: "Partita IVA", value: "IT03098620994" },
             { name: "Codice Fiscale", value: "MJLPRR89P17G605A" },
           ],
+          ...(termsText ? { footer: `Termini e condizioni: ${termsText}`.slice(0, 5000) } : {}),
         },
       },
       success_url: `${origin}/payment/rental-success?session_id={CHECKOUT_SESSION_ID}`,
