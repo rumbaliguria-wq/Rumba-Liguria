@@ -86,6 +86,8 @@ export interface RentalItem {
   available: boolean;
   archived?: boolean;
   created_at: string;
+  feesToBuyer?: boolean;
+  terms?: string;
 }
 
 export interface RentalConfig {

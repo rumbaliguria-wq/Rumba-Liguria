@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
     contact_email: body.contact_email || "",
     available: body.available !== false,
     created_at: new Date().toISOString(),
+    feesToBuyer: !!body.feesToBuyer,
+    terms: body.terms || undefined,
   };
 
   rental.items.unshift(newItem);

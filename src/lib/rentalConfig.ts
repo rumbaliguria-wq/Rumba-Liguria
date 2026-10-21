@@ -15,6 +15,10 @@ export interface RentalItem {
   available: boolean;
   archived?: boolean;
   created_at: string;
+  // Valores por defecto al generar el link de pago de este noleggio — se
+  // pueden seguir editando ahí mismo cada vez, esto solo precarga.
+  feesToBuyer?: boolean;
+  terms?: string;
 }
 
 export interface RentalConfig {

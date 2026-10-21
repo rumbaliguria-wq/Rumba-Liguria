@@ -1449,8 +1449,8 @@ export default function AdminPage() {
     setRentalPaymentPrice(guessed);
     setRentalPaymentCustomerName("");
     setRentalPaymentEmail("");
-    setRentalPaymentFeesToBuyer(false);
-    setRentalPaymentTerms("");
+    setRentalPaymentFeesToBuyer(!!item.feesToBuyer);
+    setRentalPaymentTerms(item.terms || "");
     setRentalPaymentLink(null);
   };
 
@@ -5171,6 +5171,26 @@ export default function AdminPage() {
                     <div>
                       <label className="text-xs text-gray-400 mb-1 block">Descrizione</label>
                       <textarea value={rentalForm.description || ""} onChange={e => setRentalForm(p => ({ ...p, description: e.target.value }))} rows={2} placeholder="Descrivi l'attrezzatura..." className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 resize-none" />
+                    </div>
+                    <div
+                      onClick={() => setRentalForm(p => ({ ...p, feesToBuyer: !p.feesToBuyer }))}
+                      className="flex items-center gap-2.5 p-2.5 rounded-lg cursor-pointer bg-white/5 border border-white/10"
+                    >
+                      <div className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rentalForm.feesToBuyer ? "bg-blue-500" : "bg-white/10"}`}>
+                        <div className={`w-4 h-4 bg-white rounded-full transition-all mt-0.5 ${rentalForm.feesToBuyer ? "translate-x-4" : "translate-x-0.5"}`} />
+                      </div>
+                      <span className="text-xs text-gray-300">Il cliente paga anche la commissione Stripe (default per il link di pagamento)</span>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Termini e condizioni (opzionale, default per il link di pagamento)</label>
+                      <textarea
+                        value={rentalForm.terms || ""}
+                        onChange={e => setRentalForm(p => ({ ...p, terms: e.target.value }))}
+                        rows={2}
+                        maxLength={1000}
+                        placeholder="es. Il noleggio non prevede rimborso in caso di danni."
+                        className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/40 resize-none"
+                      />
                     </div>
                     {/* Photos */}
                     <div>
