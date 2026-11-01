@@ -25,6 +25,11 @@ function requiresAdmin(path: string, method: string): boolean {
 
   if (path === "/api/reservations" && m === "GET") return true;
   if (path.startsWith("/api/reservations/vip")) return true;
+  // El GET de /api/reservations/{code} queda público (es lo que muestra el
+  // propio biglietto del cliente en /verify) — pero marcar entrata (PATCH)
+  // o borrar (DELETE) solo lo puede hacer el admin autenticado, nunca
+  // alguien que solo tenga el link/QR.
+  if (/^\/api\/reservations\/[^/]+$/.test(path) && (m === "PATCH" || m === "DELETE")) return true;
 
   if (path === "/api/cards" && (m === "GET" || m === "POST")) return true;
   if (path === "/api/cards/stats") return true;

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { CheckCircle, XCircle, Users, Calendar, Ticket, Ban, Clock, PartyPopper } from "lucide-react";
+import { CheckCircle, XCircle, Users, Calendar, Ticket, Ban, Clock } from "lucide-react";
 
 interface Reservation {
   id: string;
@@ -74,9 +74,6 @@ export default function VerifyPage() {
   const [error, setError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [confirming, setConfirming] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/reservations/${code}`)
@@ -95,28 +92,6 @@ export default function VerifyPage() {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [code]);
-
-  const handleConfirm = async () => {
-    if (confirming) return;
-    if (!reservation && !groupPass) return;
-    setConfirming(true);
-    setConfirmError(null);
-    try {
-      const res = await fetch(`/api/reservations/${code}`, { method: "PATCH" });
-      const data = await res.json();
-      if (res.ok) {
-        if (groupPass) setGroupPass({ ...groupPass, group: data.group });
-        else if (reservation) setReservation({ ...reservation, status: "used" });
-        setConfirmed(true);
-      } else {
-        setConfirmError(data.error || "Errore di conferma");
-      }
-    } catch {
-      setConfirmError("Errore di connessione");
-    } finally {
-      setConfirming(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -143,23 +118,22 @@ export default function VerifyPage() {
     );
   }
 
-  // Codice Gruppo: no tiene status/datos de un cliente puntual — cada
-  // apertura+confirmación cuenta como un ingreso más, nunca "se usa" del todo.
+  // Codice Gruppo: no tiene status/datos de un cliente puntual — el ingreso
+  // real lo registra solo el admin al escanearlo en la puerta, acá se
+  // muestra únicamente a título informativo.
   if (groupPass) {
     return (
       <div className="min-h-screen bg-[#0a0a12] text-white flex items-center justify-center p-4">
         <div className="max-w-sm w-full space-y-5">
           <div className="text-center space-y-3">
-            <div className={`w-20 h-20 mx-auto rounded-full border flex items-center justify-center ${confirmed ? "bg-green-500/15 border-green-500/40 animate-scale-in" : "bg-pink-500/10 border-pink-500/30"}`}>
-              {confirmed ? <PartyPopper size={38} className="text-green-400" /> : <Users size={40} className="text-pink-400" />}
+            <div className="w-20 h-20 mx-auto rounded-full border flex items-center justify-center bg-pink-500/10 border-pink-500/30">
+              <Users size={40} className="text-pink-400" />
             </div>
-            <h1 className={`text-2xl font-bold ${confirmed ? "text-green-400" : "text-white"}`}>
-              {confirmed ? "Benvenuto/a!" : "Codice di Gruppo"}
-            </h1>
-            <p className="text-gray-400 text-sm">{confirmed ? "Ingresso registrato. Buona serata!" : "Conferma l'ingresso all'entrata."}</p>
+            <h1 className="text-2xl font-bold text-white">Codice di Gruppo</h1>
+            <p className="text-gray-400 text-sm">Mostra questo codice all&apos;ingresso.</p>
           </div>
 
-          <div className={`border rounded-2xl p-5 space-y-4 ${confirmed ? "bg-green-500/5 border-green-500/25" : "bg-white/5 border-white/10"}`}>
+          <div className="border rounded-2xl p-5 space-y-4 bg-white/5 border-white/10">
             <div className="flex items-start gap-3">
               <Ticket size={18} className="text-blue-400 mt-0.5 flex-shrink-0" />
               <div>
@@ -182,28 +156,6 @@ export default function VerifyPage() {
             </div>
           </div>
 
-          {!confirmed && (
-            <div className="space-y-2">
-              {confirmError && (
-                <p className="text-center text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl py-2 px-4">{confirmError}</p>
-              )}
-              <button
-                onClick={handleConfirm}
-                disabled={confirming}
-                className="w-full py-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold text-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-              >
-                {confirming ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <CheckCircle size={22} />
-                    Conferma Ingresso
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
           <a href="/" className="block text-center text-sm text-gray-500 hover:text-gray-300 transition-all">
             Torna alla home
           </a>
@@ -217,7 +169,6 @@ export default function VerifyPage() {
   const isUsed = reservation.status === "used";
   const isCancelled = reservation.status === "cancelled";
   const expired = isExpired(reservation.events?.event_date_iso);
-  const isInvalid = isUsed || isCancelled || expired;
   const displayName = formatDisplayName(reservation.user_name, reservation.user_email);
 
   return (
@@ -226,15 +177,7 @@ export default function VerifyPage() {
 
         {/* Status header */}
         <div className="text-center space-y-3">
-          {confirmed ? (
-            <>
-              <div className="w-20 h-20 mx-auto rounded-full bg-green-500/15 border border-green-500/40 flex items-center justify-center animate-scale-in">
-                <PartyPopper size={38} className="text-green-400" />
-              </div>
-              <h1 className="text-2xl font-bold text-green-400">Benvenuto/a!</h1>
-              <p className="text-gray-400 text-sm">Prenotazione confermata. Buona serata!</p>
-            </>
-          ) : isUsed ? (
+          {isUsed ? (
             <>
               <div className="w-20 h-20 mx-auto rounded-full bg-gray-500/10 border border-gray-500/30 flex items-center justify-center">
                 <CheckCircle size={40} className="text-gray-400" />
@@ -264,16 +207,14 @@ export default function VerifyPage() {
                 <Ticket size={40} className="text-blue-400" />
               </div>
               <h1 className="text-2xl font-bold text-white">Prenotazione Attiva</h1>
-              <p className="text-gray-400 text-sm">Conferma la prenotazione all&apos;ingresso.</p>
+              <p className="text-gray-400 text-sm">Mostra questo codice all&apos;ingresso.</p>
             </>
           )}
         </div>
 
         {/* Reservation card */}
         <div className={`border rounded-2xl p-5 space-y-4 ${
-          confirmed ? "bg-green-500/5 border-green-500/25" :
-          isInvalid ? "bg-white/3 border-white/8" :
-          "bg-white/5 border-white/10"
+          isUsed || isCancelled || expired ? "bg-white/3 border-white/8" : "bg-white/5 border-white/10"
         }`}>
           {reservation.events.flyer_url && (
             <div className="relative w-full rounded-xl overflow-hidden bg-black flex justify-center">
@@ -342,39 +283,16 @@ export default function VerifyPage() {
             {/* Status badge */}
             <div className="pt-2 border-t border-white/10">
               <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                confirmed || isUsed ? "bg-green-500/20 text-green-400 border border-green-500/30" :
+                isUsed ? "bg-green-500/20 text-green-400 border border-green-500/30" :
                 isCancelled ? "bg-red-500/20 text-red-400 border border-red-500/30" :
                 expired ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" :
                 "bg-blue-500/20 text-blue-400 border border-blue-500/30"
               }`}>
-                {confirmed ? "Confermata ✓" : isCancelled ? "Cancellata" : isUsed ? "Utilizzata" : expired ? "Scaduta" : "Attiva"}
+                {isCancelled ? "Cancellata" : isUsed ? "Utilizzata" : expired ? "Scaduta" : "Attiva"}
               </span>
             </div>
           </div>
         </div>
-
-        {/* Confirm button — only if active and not expired */}
-        {!isInvalid && !confirmed && (
-          <div className="space-y-2">
-            {confirmError && (
-              <p className="text-center text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl py-2 px-4">{confirmError}</p>
-            )}
-            <button
-              onClick={handleConfirm}
-              disabled={confirming}
-              className="w-full py-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold text-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-            >
-              {confirming ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <CheckCircle size={22} />
-                  Conferma Prenotazione
-                </>
-              )}
-            </button>
-          </div>
-        )}
 
         <a href="/" className="block text-center text-sm text-gray-500 hover:text-gray-300 transition-all">
           Torna alla home
