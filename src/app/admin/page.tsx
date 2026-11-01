@@ -1799,6 +1799,14 @@ export default function AdminPage() {
       else toast.error("Errore eliminazione");
       return;
     }
+    // Codice Gruppo: id tipo "group-Label" — borra todas las entradas de ese grupo
+    if (id.startsWith("group-")) {
+      const label = id.slice("group-".length);
+      const res = await fetch(`/api/users/${encodeURIComponent(label)}?type=group`, { method: "DELETE" });
+      if (res.ok) { toast.success("Gruppo eliminato!"); fetchUsers(); }
+      else toast.error("Errore eliminazione");
+      return;
+    }
     const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
     if (res.ok) { toast.success("Utente eliminato!"); fetchUsers(); }
     else toast.error("Errore eliminazione");
@@ -4616,6 +4624,9 @@ export default function AdminPage() {
                         )}
                         {user.source === "reservation" && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 font-medium">solo prenotazione</span>
+                        )}
+                        {user.source === "group" && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pink-500/10 text-pink-400 border border-pink-500/20 font-medium">Codice Gruppo</span>
                         )}
                         {user.userType && (
                           <span className={`inline-block text-[9px] px-1.5 py-0.5 rounded-full font-medium ${

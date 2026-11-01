@@ -36,10 +36,8 @@ export async function GET() {
 
   // Build a map of email -> name from reservations
   const nameMap = new Map<string, string>();
-  const reservationEmailSet = new Set<string>();
   for (const r of reservationUsers ?? []) {
-    if (r.user_email) {
-      reservationEmailSet.add(r.user_email.toLowerCase());
+    if (r.user_email && r.user_email !== "__group__") {
       if (!nameMap.has(r.user_email.toLowerCase())) {
         const n = formatName(r.user_name, r.user_email);
         if (n) nameMap.set(r.user_email.toLowerCase(), n);
@@ -71,13 +69,33 @@ export async function GET() {
     phone: null;
     created_at: string;
     name: string | null;
-    source: "reservation";
+    source: "reservation" | "group";
   }[] = [];
 
   const seen = new Set<string>();
+  // Codice Gruppo: todas las entradas de un mismo grupo comparten el email
+  // sentinel "__group__" — si se dedupeara por email como el resto, todos
+  // los grupos distintos colapsarían en una sola fila. Acá se dedupea por
+  // el nombre del grupo (ya viene como "Label [grupo]" desde el PATCH que
+  // registra cada entrada), para que cada grupo aparezca como su propia fila.
+  const seenGroups = new Set<string>();
   for (const r of reservationUsers ?? []) {
     const email = r.user_email?.toLowerCase();
     if (!email) continue;
+    if (email === "__group__") {
+      const label = (r.user_name || "Gruppo").replace(/\s*\[grupo\]\s*$/i, "").trim() || "Gruppo";
+      if (seenGroups.has(label)) continue;
+      seenGroups.add(label);
+      extraUsers.push({
+        id: `group-${label}`,
+        email: "Codice Gruppo",
+        phone: null,
+        created_at: r.created_at,
+        name: label,
+        source: "group",
+      });
+      continue;
+    }
     if (registeredEmails.has(email)) continue;
     if (seen.has(email)) continue;
     seen.add(email);

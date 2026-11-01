@@ -44,7 +44,7 @@ export interface User {
   created_at: string;
   name?: string | null;
   userType?: string | null;
-  source?: "registered" | "reservation";
+  source?: "registered" | "reservation" | "group";
 }
 
 export interface Reservation {

@@ -18,6 +18,19 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   }
 
+  // Codice Gruppo: borra todas las entradas registradas con ese grupo (no
+  // hay un email real al que atarlas, solo el sentinel "__group__").
+  if (type === "group") {
+    const label = decodeURIComponent(id);
+    const { error } = await supabase
+      .from("reservations")
+      .delete()
+      .eq("user_email", "__group__")
+      .eq("user_name", `${label} [grupo]`);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  }
+
   const { error } = await supabase.from("users").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
