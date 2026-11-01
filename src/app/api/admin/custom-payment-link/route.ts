@@ -29,6 +29,15 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getServiceClient();
+
+  // Pagamento online (link Stripe): il cliente deve avere già un account sul
+  // sito, come nell'acquisto normale — a differenza della vendita in
+  // contanti, dove sei tu a registrare l'ingresso.
+  const { data: existingUser } = await supabase.from("users").select("id").eq("email", email).maybeSingle();
+  if (!existingUser) {
+    return NextResponse.json({ error: "Questo cliente non ha un account sul sito. Deve prima registrarsi (o accedere) prima di poter ricevere un link di pagamento." }, { status: 400 });
+  }
+
   const { data: event } = await supabase
     .from("events")
     .select("id, title, max_tickets, archived")
