@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, fetchAllRows } from "@/lib/supabase";
 import { sendEmail, eventAnnouncementHtml } from "@/lib/email";
 import { encodeSaleConfig, decodeSaleConfig } from "@/lib/saleConfig";
 import { encodeTicketTypes, decodeTicketTypes, extractTicketTypeTag } from "@/lib/ticketTypes";
@@ -130,7 +130,9 @@ export async function POST(req: Request) {
         const origin = req.headers.get("origin") || "";
       const siteUrl = origin || process.env.NEXT_PUBLIC_SITE_URL || "https://rumbaliguria.com";
 
-      const { data: users } = await supabase.from("users").select("email");
+      const { data: users } = await fetchAllRows((from, to) =>
+        supabase.from("users").select("email").range(from, to)
+      );
       if (users && users.length > 0) {
         const html = eventAnnouncementHtml({
           title: data.title,

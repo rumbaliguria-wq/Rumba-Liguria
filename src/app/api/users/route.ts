@@ -1,23 +1,29 @@
 import { NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, fetchAllRows } from "@/lib/supabase";
 import { decodePhoneField } from "@/lib/userPhone";
 
 export async function GET() {
   const supabase = getServiceClient();
 
   // Fetch registered users
-  const { data: registeredUsers, error } = await supabase
-    .from("users")
-    .select("id, email, phone, created_at")
-    .order("created_at", { ascending: false });
+  const { data: registeredUsers, error } = await fetchAllRows((from, to) =>
+    supabase
+      .from("users")
+      .select("id, email, phone, created_at")
+      .order("created_at", { ascending: false })
+      .range(from, to)
+  );
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Fetch unique emails + names from reservations
-  const { data: reservationUsers } = await supabase
-    .from("reservations")
-    .select("user_email, user_name, created_at")
-    .order("created_at", { ascending: false });
+  const { data: reservationUsers } = await fetchAllRows((from, to) =>
+    supabase
+      .from("reservations")
+      .select("user_email, user_name, created_at")
+      .order("created_at", { ascending: false })
+      .range(from, to)
+  );
 
   // Format an email into a display name
   function formatName(raw: string | null | undefined, email: string): string | null {

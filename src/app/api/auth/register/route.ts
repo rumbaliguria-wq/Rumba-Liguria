@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, fetchAllRows } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
 import { encodePhoneField, decodePhoneField, normalizePhone } from "@/lib/userPhone";
 
@@ -35,7 +35,9 @@ export async function POST(req: Request) {
     }
 
     // Block duplicate phone numbers (one account per phone)
-    const { data: allUsers } = await supabase.from("users").select("phone");
+    const { data: allUsers } = await fetchAllRows((from, to) =>
+      supabase.from("users").select("phone").range(from, to)
+    );
     const phoneTaken = (allUsers || []).some((u) => {
       const existingPhone = decodePhoneField(u.phone).phone;
       if (!existingPhone) return false;

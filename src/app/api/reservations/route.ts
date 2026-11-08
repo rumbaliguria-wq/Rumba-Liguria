@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, fetchAllRows } from "@/lib/supabase";
 import { createReservationsAndNotify, validateBookingRules } from "@/lib/reservations";
 import { getUnitPriceCents } from "@/lib/pricing";
 import { decodeTicketTypes } from "@/lib/ticketTypes";
 
 export async function GET() {
   const supabase = getServiceClient();
-    const { data, error } = await supabase
+  const { data, error } = await fetchAllRows((from, to) =>
+    supabase
       .from("reservations")
       .select("*, events(title, event_date_iso, archived)")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(from, to)
+  );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

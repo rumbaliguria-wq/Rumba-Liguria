@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase";
+import { getServiceClient, fetchAllRows } from "@/lib/supabase";
 import { sendEmail, eventAnnouncementHtml } from "@/lib/email";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,9 +17,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
     // Get all users with emails
-    const { data: users } = await supabase
-      .from("users")
-      .select("email");
+    const { data: users } = await fetchAllRows((from, to) =>
+      supabase.from("users").select("email").range(from, to)
+    );
 
     if (!users || users.length === 0) {
       return NextResponse.json({ sent: 0 });
