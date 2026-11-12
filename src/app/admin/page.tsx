@@ -6197,24 +6197,22 @@ export default function AdminPage() {
             <h3 className="text-base font-bold text-white flex items-center gap-2"><IdCard size={18} className="text-pink-400" /> Tessera</h3>
             <button onClick={() => setViewingCard(null)} className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white transition-all"><X size={16} /></button>
           </div>
-          <div className="flex gap-3 items-start">
-            <div className="space-y-2 text-sm min-w-0 flex-1">
-              <p className="text-white font-semibold text-base truncate">{viewingCard.full_name}</p>
-              {viewingCard.card_number != null && <p className="text-gray-400 text-xs">Nº{String(viewingCard.card_number).padStart(4, "0")}</p>}
-              {viewingCard.email && <p className="text-gray-300 truncate">{viewingCard.email}</p>}
-              {viewingCard.phone && <p className="text-gray-300">{viewingCard.phone}</p>}
-              {viewingCard.id_type && <p className="text-gray-300">{decodeIdType(viewingCard.id_type).label}{viewingCard.id_number ? `: ${viewingCard.id_number}` : ""}</p>}
-              {(viewingCard.city || viewingCard.country) && <p className="text-gray-300">{[viewingCard.city, viewingCard.country].filter(Boolean).join(", ")}</p>}
-              {viewingCard.birth_date && <p className="text-gray-300">Nato/a il {new Date(viewingCard.birth_date).toLocaleDateString("it-IT")}</p>}
-            </div>
-            {viewingCard.photo_url ? (
-              <Image src={viewingCard.photo_url} alt={viewingCard.full_name} width={96} height={96} className="w-24 h-24 rounded-xl object-cover flex-shrink-0 border border-white/10" />
-            ) : (
-              <div className="w-24 h-24 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl font-bold text-pink-400 flex-shrink-0">
-                {viewingCard.full_name?.[0]?.toUpperCase() ?? "?"}
-              </div>
-            )}
+          <div className="space-y-2 text-sm">
+            <p className="text-white font-semibold text-base truncate">{viewingCard.full_name}</p>
+            {viewingCard.card_number != null && <p className="text-gray-400 text-xs">Nº{String(viewingCard.card_number).padStart(4, "0")}</p>}
+            {viewingCard.email && <p className="text-gray-300 truncate">{viewingCard.email}</p>}
+            {viewingCard.phone && <p className="text-gray-300">{viewingCard.phone}</p>}
+            {viewingCard.id_type && <p className="text-gray-300">{decodeIdType(viewingCard.id_type).label}{viewingCard.id_number ? `: ${viewingCard.id_number}` : ""}</p>}
+            {(viewingCard.city || viewingCard.country) && <p className="text-gray-300">{[viewingCard.city, viewingCard.country].filter(Boolean).join(", ")}</p>}
+            {viewingCard.birth_date && <p className="text-gray-300">Nato/a il {new Date(viewingCard.birth_date).toLocaleDateString("it-IT")}</p>}
           </div>
+          {viewingCard.photo_url ? (
+            <Image src={viewingCard.photo_url} alt={viewingCard.full_name} width={140} height={140} className="w-[140px] h-[140px] mx-auto rounded-xl object-cover border border-white/10" />
+          ) : (
+            <div className="w-[140px] h-[140px] mx-auto rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-3xl font-bold text-pink-400">
+              {viewingCard.full_name?.[0]?.toUpperCase() ?? "?"}
+            </div>
+          )}
           {typeof viewingCard.visit_count === "number" && (
             <p className="text-pink-400 font-medium pt-1 border-t border-white/10 text-sm">{viewingCard.visit_count} {viewingCard.visit_count === 1 ? "ingresso" : "ingressi"} con tessera</p>
           )}
