@@ -182,6 +182,21 @@ async function shareOrDownloadCanvas(canvas: HTMLCanvasElement, filename: string
   return false;
 }
 
+// Datos mínimos de una tessera para la ventanita rápida que se abre desde
+// Prenotazioni/Utenti — no hace falta el objeto Card completo de CardsPanel.
+interface CardInfo {
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  id_type: string | null;
+  id_number: string | null;
+  country: string | null;
+  city: string | null;
+  birth_date: string | null;
+  card_number: number | null;
+  visit_count?: number;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   // Called before the login-screen early return, since hooks can't be conditional.
@@ -206,6 +221,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "events" | "users" | "reservations" | "gallery" | "rentals" | "cards" | "settings">("overview");
   const [vipCodesCount, setVipCodesCount] = useState<number | null>(null);
   const [clientCardsCount, setClientCardsCount] = useState<number | null>(null);
+  const [cardsByEmail, setCardsByEmail] = useState<Map<string, CardInfo>>(new Map());
+  const [viewingCard, setViewingCard] = useState<CardInfo | null>(null);
   const [rentalConfig, setRentalConfig] = useState<RentalConfig>({ items: [], section_name: "Noleggio Attrezzatura", button_name: "Noleggio", enabled: true });
   const [rentalForm, setRentalForm] = useState<Partial<RentalItem> & { photosUploading?: boolean }>({ name: "", description: "", price: "", duration: "", photos: [], contact_phone: "", contact_email: "", available: true });
   const [editingRental, setEditingRental] = useState<RentalItem | null>(null);
@@ -897,7 +914,15 @@ export default function AdminPage() {
       // Lightweight counts for the "Panoramica" dashboard — reuse the same
       // endpoints CardsPanel and the VIP generator already fetch from.
       fetch("/api/reservations/vip").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setVipCodesCount(d.length); }).catch(() => {});
-      fetch("/api/cards").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setClientCardsCount(d.length); }).catch(() => {});
+      fetch("/api/cards").then((r) => r.json()).then((d) => {
+        if (!Array.isArray(d)) return;
+        setClientCardsCount(d.length);
+        const map = new Map<string, CardInfo>();
+        for (const c of d) {
+          if (c.email) map.set(String(c.email).toLowerCase(), c);
+        }
+        setCardsByEmail(map);
+      }).catch(() => {});
     }
   }, [authenticated, fetchEvents, fetchUsers, fetchReservations, fetchGallery, fetchRentals, fetchDoorPasses, fetchGroupPasses]);
 
@@ -4641,6 +4666,19 @@ export default function AdminPage() {
                       <span className="text-[10px] sm:text-xs text-gray-500 hidden sm:inline">
                         {new Date(user.created_at).toLocaleDateString("it-IT")}
                       </span>
+                        {(() => {
+                          const card = cardsByEmail.get(user.email?.toLowerCase() ?? "");
+                          if (!card) return null;
+                          return (
+                            <button
+                              onClick={() => setViewingCard(card)}
+                              title="Vedi tessera"
+                              className="p-1.5 sm:p-2 rounded-lg bg-pink-500/15 text-pink-400 hover:bg-pink-500/25 transition-all"
+                            >
+                              <IdCard size={13} />
+                            </button>
+                          );
+                        })()}
                         {user.phone ? (
                           <a
                             href={`https://wa.me/${user.phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(`Nuovo Evento! Guarda qui: ${typeof window !== "undefined" ? window.location.origin : "https://rumbaliguria.com"}`)}`}
@@ -4907,6 +4945,19 @@ export default function AdminPage() {
                                           "bg-purple-500/10 text-purple-400 border border-purple-500/20"
                                         }`}>{ru.userType}</span>
                                       )}
+                                      {(() => {
+                                        const card = cardsByEmail.get(r.user_email?.toLowerCase() ?? "");
+                                        if (!card) return null;
+                                        return (
+                                          <button
+                                            onClick={() => setViewingCard(card)}
+                                            title="Vedi tessera"
+                                            className="p-0.5 rounded-full text-pink-400 hover:bg-pink-500/10 transition-all"
+                                          >
+                                            <IdCard size={13} />
+                                          </button>
+                                        );
+                                      })()}
                                       {selectedEventFilter === "all" && r.events && (
                                         <span className="text-[10px] text-gray-500 truncate">{r.events.title}</span>
                                       )}
@@ -6130,6 +6181,36 @@ export default function AdminPage() {
         </div>
       );
     })()}
+
+    {/* ─── Tessera rapida — vista desde Prenotazioni/Utenti ─── */}
+    {viewingCard && (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+        onClick={() => setViewingCard(null)}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl bg-[#0a0a12] border border-pink-500/20 p-5 space-y-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-base font-bold text-white flex items-center gap-2"><IdCard size={18} className="text-pink-400" /> Tessera</h3>
+            <button onClick={() => setViewingCard(null)} className="p-1.5 rounded-full bg-white/5 text-gray-400 hover:text-white transition-all"><X size={16} /></button>
+          </div>
+          <div className="space-y-2 text-sm">
+            <p className="text-white font-semibold text-base">{viewingCard.full_name}</p>
+            {viewingCard.card_number != null && <p className="text-gray-400 text-xs">Nº{String(viewingCard.card_number).padStart(4, "0")}</p>}
+            {viewingCard.email && <p className="text-gray-300">{viewingCard.email}</p>}
+            {viewingCard.phone && <p className="text-gray-300">{viewingCard.phone}</p>}
+            {viewingCard.id_type && <p className="text-gray-300">{decodeIdType(viewingCard.id_type).label}{viewingCard.id_number ? `: ${viewingCard.id_number}` : ""}</p>}
+            {(viewingCard.city || viewingCard.country) && <p className="text-gray-300">{[viewingCard.city, viewingCard.country].filter(Boolean).join(", ")}</p>}
+            {viewingCard.birth_date && <p className="text-gray-300">Nato/a il {new Date(viewingCard.birth_date).toLocaleDateString("it-IT")}</p>}
+            {typeof viewingCard.visit_count === "number" && (
+              <p className="text-pink-400 font-medium pt-1 border-t border-white/10">{viewingCard.visit_count} {viewingCard.visit_count === 1 ? "ingresso" : "ingressi"} con tessera</p>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     </div>
     );
   }
