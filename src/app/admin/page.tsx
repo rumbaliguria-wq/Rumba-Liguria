@@ -34,6 +34,7 @@ import {
     Search,
     Package,
     Phone,
+    Hash,
     PencilLine,
     RotateCcw,
     BarChart2,
@@ -6199,12 +6200,24 @@ export default function AdminPage() {
           </div>
           <div className="space-y-2 text-sm">
             <p className="text-white font-semibold text-base truncate">{viewingCard.full_name}</p>
-            {viewingCard.card_number != null && <p className="text-gray-400 text-xs">Nº{String(viewingCard.card_number).padStart(4, "0")}</p>}
-            {viewingCard.email && <p className="text-gray-300 truncate">{viewingCard.email}</p>}
-            {viewingCard.phone && <p className="text-gray-300">{viewingCard.phone}</p>}
-            {viewingCard.id_type && <p className="text-gray-300">{decodeIdType(viewingCard.id_type).label}{viewingCard.id_number ? `: ${viewingCard.id_number}` : ""}</p>}
-            {(viewingCard.city || viewingCard.country) && <p className="text-gray-300">{[viewingCard.city, viewingCard.country].filter(Boolean).join(", ")}</p>}
-            {viewingCard.birth_date && <p className="text-gray-300">Nato/a il {new Date(viewingCard.birth_date).toLocaleDateString("it-IT")}</p>}
+            {viewingCard.card_number != null && (
+              <p className="text-gray-400 text-xs flex items-center gap-1.5"><Hash size={12} />Nº{String(viewingCard.card_number).padStart(4, "0")}</p>
+            )}
+            {viewingCard.email && (
+              <p className="text-gray-300 flex items-center gap-1.5 min-w-0"><Mail size={13} className="flex-shrink-0 text-gray-500" /><span className="truncate">{viewingCard.email}</span></p>
+            )}
+            {viewingCard.phone && (
+              <p className="text-gray-300 flex items-center gap-1.5"><Phone size={13} className="flex-shrink-0 text-gray-500" />{viewingCard.phone}</p>
+            )}
+            {viewingCard.id_type && (
+              <p className="text-gray-300 flex items-center gap-1.5"><IdCard size={13} className="flex-shrink-0 text-gray-500" />{decodeIdType(viewingCard.id_type).label}{viewingCard.id_number ? `: ${viewingCard.id_number}` : ""}</p>
+            )}
+            {(viewingCard.city || viewingCard.country) && (
+              <p className="text-gray-300 flex items-center gap-1.5"><MapPin size={13} className="flex-shrink-0 text-gray-500" />{[viewingCard.city, viewingCard.country].filter(Boolean).join(", ")}</p>
+            )}
+            {viewingCard.birth_date && (
+              <p className="text-gray-300 flex items-center gap-1.5"><Calendar size={13} className="flex-shrink-0 text-gray-500" />Nato/a il {new Date(viewingCard.birth_date).toLocaleDateString("it-IT")}</p>
+            )}
           </div>
           {viewingCard.photo_url ? (
             <Image src={viewingCard.photo_url} alt={viewingCard.full_name} width={140} height={140} className="w-[140px] h-[140px] mx-auto rounded-xl object-cover border border-white/10" />
