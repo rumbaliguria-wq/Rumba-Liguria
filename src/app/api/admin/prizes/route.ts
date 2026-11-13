@@ -23,8 +23,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data);
 }
 
+const DEFAULT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
 export async function POST(req: NextRequest) {
-  const { event_id, email, description, photo_url } = await req.json().catch(() => ({}));
+  const { event_id, email, description, photo_url, expires_at } = await req.json().catch(() => ({}));
 
   const cleanEmail = String(email || "").trim().toLowerCase();
   const cleanDescription = String(description || "").trim();
@@ -36,19 +38,24 @@ export async function POST(req: NextRequest) {
   const { data: event } = await supabase.from("events").select("title").eq("id", event_id).single();
   if (!event) return NextResponse.json({ error: "Evento non trovato" }, { status: 404 });
 
+  // Si no se pone una fecha a mano, caduca a las 24 horas de creado.
+  const expiresAtIso = expires_at ? new Date(expires_at).toISOString() : new Date(Date.now() + DEFAULT_EXPIRY_MS).toISOString();
+
   const { data: prize, error } = await supabase
     .from("prizes")
-    .insert({ event_id, email: cleanEmail, description: cleanDescription, photo_url: photo_url || null })
+    .insert({ event_id, email: cleanEmail, description: cleanDescription, photo_url: photo_url || null, expires_at: expiresAtIso })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const expiresLabel = new Date(expiresAtIso).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" });
 
   // Email automático — no requiere ninguna acción más del admin.
   try {
     await sendEmail({
       to: cleanEmail,
       subject: `🎁 Hai vinto un regalo per ${event.title}`,
-      html: prizeNotificationHtml({ eventTitle: event.title, description: cleanDescription, photoUrl: photo_url || null }),
+      html: prizeNotificationHtml({ eventTitle: event.title, description: cleanDescription, photoUrl: photo_url || null, expiresLabel }),
     });
   } catch (err) {
     console.error("Prize email error", err);

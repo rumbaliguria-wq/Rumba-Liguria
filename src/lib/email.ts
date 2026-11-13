@@ -269,7 +269,7 @@ export function cardDeactivatedHtml(opts: { fullName: string; reason: string | n
 </html>`;
 }
 
-export function prizeNotificationHtml(opts: { eventTitle: string; description: string; photoUrl?: string | null }) {
+export function prizeNotificationHtml(opts: { eventTitle: string; description: string; photoUrl?: string | null; expiresLabel?: string | null }) {
   return `
 <!DOCTYPE html>
 <html>
@@ -290,6 +290,7 @@ export function prizeNotificationHtml(opts: { eventTitle: string; description: s
         <div style="background:#1a0f16;border:1px solid #3a1e2e;border-radius:12px;padding:18px;">
           <p style="color:#f9a8d4;font-size:16px;font-weight:600;margin:0;">${opts.description}</p>
         </div>
+        ${opts.expiresLabel ? `<p style="color:#fbbf24;font-size:13px;font-weight:600;margin:14px 0 0;">⏰ Valido fino al ${opts.expiresLabel}</p>` : ""}
       </div>
     </div>
     <p style="text-align:center;color:#4b5563;font-size:12px;margin-top:20px;">

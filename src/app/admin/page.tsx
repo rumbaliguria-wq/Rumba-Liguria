@@ -305,7 +305,7 @@ export default function AdminPage() {
   const [tessereEntries, setTessereEntries] = useState<{ full_name: string; city: string | null; id_type: string | null; scanned_at: string }[] | null>(null);
   const [statsPrizesCount, setStatsPrizesCount] = useState<number | null>(null);
   const [prizesEntriesOpen, setPrizesEntriesOpen] = useState(false);
-  const [statsPrizesList, setStatsPrizesList] = useState<{ id: string; email: string; description: string; photo_url: string | null }[] | null>(null);
+  const [statsPrizesList, setStatsPrizesList] = useState<{ id: string; email: string; description: string; photo_url: string | null; expires_at: string | null; claimed_at: string | null }[] | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -402,10 +402,11 @@ export default function AdminPage() {
   const [prizeSelectedUser, setPrizeSelectedUser] = useState<{ name: string | null; email: string } | null>(null);
   const [prizeDescription, setPrizeDescription] = useState("");
   const [prizePhotoUrl, setPrizePhotoUrl] = useState<string | null>(null);
+  const [prizeExpiresAt, setPrizeExpiresAt] = useState("");
   const [prizeUploading, setPrizeUploading] = useState(false);
   const [prizeSaving, setPrizeSaving] = useState(false);
   const [prizeWhatsapp, setPrizeWhatsapp] = useState<{ url: string; name: string } | null>(null);
-  const [eventPrizes, setEventPrizes] = useState<{ id: string; email: string; description: string; photo_url: string | null }[]>([]);
+  const [eventPrizes, setEventPrizes] = useState<{ id: string; email: string; description: string; photo_url: string | null; expires_at: string | null; claimed_at: string | null }[]>([]);
   const [scanPrize, setScanPrize] = useState<{ id: string; description: string; photo_url: string | null } | null>(null);
   const [showScanPrize, setShowScanPrize] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
@@ -1535,13 +1536,15 @@ export default function AdminPage() {
           email: prizeSelectedUser.email,
           description: prizeDescription.trim(),
           photo_url: prizePhotoUrl,
+          expires_at: prizeExpiresAt ? new Date(prizeExpiresAt).toISOString() : undefined,
         }),
       });
       const d = await res.json();
       if (res.ok) {
         toast.success("Premio salvato! Email inviata.");
+        const expiresLabel = d.expires_at ? new Date(d.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : null;
         if (d.phone) {
-          const text = `Ciao${prizeSelectedUser.name ? ` ${prizeSelectedUser.name}` : ""}! 🎁 Hai vinto: "${prizeDescription.trim()}" per ${d.event_title}. Vieni a ritirarlo!`;
+          const text = `Ciao${prizeSelectedUser.name ? ` ${prizeSelectedUser.name}` : ""}! 🎁 Hai vinto: "${prizeDescription.trim()}" per ${d.event_title}.${expiresLabel ? ` Valido fino al ${expiresLabel}.` : ""} Vieni a ritirarlo!`;
           setPrizeWhatsapp({ url: `https://wa.me/${d.phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(text)}`, name: prizeSelectedUser.name || prizeSelectedUser.email });
         } else {
           setPrizeWhatsapp(null);
@@ -1550,6 +1553,7 @@ export default function AdminPage() {
         setPrizeSearch("");
         setPrizeDescription("");
         setPrizePhotoUrl(null);
+        setPrizeExpiresAt("");
         fetchEventPrizes(prizeEventId);
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
@@ -3101,6 +3105,16 @@ export default function AdminPage() {
                     </label>
                   </div>
                 </div>
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 mb-1 block">Scadenza (vuoto = 24 ore da adesso)</label>
+                  <input
+                    type="datetime-local"
+                    value={prizeExpiresAt}
+                    onChange={(e) => setPrizeExpiresAt(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40 [color-scheme:dark]"
+                  />
+                  <p className="text-[10px] text-gray-600 mt-1">Dopo questa data/ora il premio non esce più scansionando.</p>
+                </div>
                 <button
                   onClick={handleSavePrize}
                   disabled={prizeSaving}
@@ -3126,15 +3140,21 @@ export default function AdminPage() {
                 {prizeEventId && eventPrizes.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
                     <p className="text-[11px] text-gray-500">Premi per questo evento ({eventPrizes.length})</p>
-                    {eventPrizes.map((p) => (
+                    {eventPrizes.map((p) => {
+                      const expired = p.expires_at && new Date(p.expires_at) < new Date();
+                      return (
                       <div key={p.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-white/5 border border-white/10">
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-gray-300 truncate">{p.email}</p>
                           <p className="text-xs text-pink-300 truncate">{p.description}</p>
+                          <p className="text-[10px] text-gray-500">
+                            {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                          </p>
                         </div>
                         <button onClick={() => handleDeletePrize(p.id)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0"><Trash2 size={13} /></button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -6312,7 +6332,9 @@ export default function AdminPage() {
                   <p className="text-center text-gray-500 py-8 text-sm">Caricamento...</p>
                 ) : statsPrizesList.length === 0 ? (
                   <p className="text-center text-gray-500 py-8 text-sm">Nessun premio dato per questo evento</p>
-                ) : statsPrizesList.map((p) => (
+                ) : statsPrizesList.map((p) => {
+                  const expired = p.expires_at && new Date(p.expires_at) < new Date();
+                  return (
                   <div key={p.id} className="p-3 rounded-xl border bg-[#0a0a12] border-pink-500/15 flex items-center gap-3">
                     {p.photo_url && (
                       <Image src={p.photo_url} alt="" width={44} height={44} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
@@ -6320,9 +6342,13 @@ export default function AdminPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-white truncate">{p.email}</p>
                       <p className="text-[11px] text-pink-300 truncate">{p.description}</p>
+                      <p className="text-[10px] text-gray-500">
+                        {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                      </p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : statsDrilldown ? (
               /* ── Detail list ── */
