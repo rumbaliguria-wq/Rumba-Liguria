@@ -3032,12 +3032,22 @@ export default function AdminPage() {
                         placeholder="Cerca per nome o email..."
                         className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40"
                       />
-                      {prizeSearch.trim() && (
+                      {prizeSearch.trim() && (() => {
+                        // El buscador combina Utenti (cuenta o prenotazione) con las
+                        // tessere que no tienen ninguna de las dos — si no, alguien
+                        // que SOLO tiene tessera nunca aparecería acá para elegirlo.
+                        const userEmails = new Set(users.map(u => u.email.toLowerCase()));
+                        const cardOnly = Array.from(cardsByEmail.values())
+                          .filter(c => c.email && !userEmails.has(c.email.toLowerCase()))
+                          .map(c => ({ id: `card-${c.email}`, name: c.full_name, email: c.email as string }));
+                        const pool = [...users, ...cardOnly];
+                        const matches = pool.filter(u =>
+                          (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
+                          u.email.toLowerCase().includes(prizeSearch.toLowerCase())
+                        ).slice(0, 8);
+                        return (
                         <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-[#0a0a12] border border-white/10 shadow-lg">
-                          {users.filter(u =>
-                            (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
-                            u.email.toLowerCase().includes(prizeSearch.toLowerCase())
-                          ).slice(0, 8).map(u => (
+                          {matches.map(u => (
                             <button
                               key={u.id}
                               onClick={() => { setPrizeSelectedUser({ name: u.name ?? null, email: u.email }); setPrizeSearch(""); }}
@@ -3047,14 +3057,12 @@ export default function AdminPage() {
                               {u.name && <span className="text-gray-500 text-xs block truncate">{u.email}</span>}
                             </button>
                           ))}
-                          {users.filter(u =>
-                            (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
-                            u.email.toLowerCase().includes(prizeSearch.toLowerCase())
-                          ).length === 0 && (
+                          {matches.length === 0 && (
                             <p className="px-3 py-2 text-xs text-gray-500">Nessun utente trovato</p>
                           )}
                         </div>
-                      )}
+                        );
+                      })()}
                     </>
                   )}
                 </div>

@@ -54,10 +54,15 @@ export async function POST(req: NextRequest) {
     console.error("Prize email error", err);
   }
 
-  // El teléfono (si lo tiene como usuario registrado) lo arma el frontend
-  // en un link de WhatsApp — se lo devolvemos ya decodificado.
+  // El teléfono lo arma el frontend en un link de WhatsApp — se busca
+  // primero en Utenti (ya registrado), y si no, en la tessera (alguien que
+  // solo tiene tessera guarda su teléfono ahí, no en la cuenta).
   const { data: user } = await supabase.from("users").select("phone").eq("email", cleanEmail).maybeSingle();
-  const phone = user?.phone ? decodePhoneField(user.phone).phone : null;
+  let phone = user?.phone ? decodePhoneField(user.phone).phone : null;
+  if (!phone) {
+    const { data: card } = await supabase.from("client_cards").select("phone").eq("email", cleanEmail).maybeSingle();
+    phone = card?.phone || null;
+  }
 
   return NextResponse.json({ ...prize, event_title: event.title, phone });
 }
