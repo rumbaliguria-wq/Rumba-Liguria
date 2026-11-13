@@ -3041,10 +3041,18 @@ export default function AdminPage() {
                           .filter(c => c.email && !userEmails.has(c.email.toLowerCase()))
                           .map(c => ({ id: `card-${c.email}`, name: c.full_name, email: c.email as string }));
                         const pool = [...users, ...cardOnly];
-                        const matches = pool.filter(u =>
-                          (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
-                          u.email.toLowerCase().includes(prizeSearch.toLowerCase())
-                        ).slice(0, 8);
+                        const q = prizeSearch.toLowerCase();
+                        const matches = pool.filter(u => {
+                          // El nombre de Utenti (de la cuenta o de la prenotazione) puede
+                          // ser más corto que el de la tessera (ej. sin el segundo
+                          // apellido) — se busca en los dos para no perder el match.
+                          const cardName = cardsByEmail.get(u.email.toLowerCase())?.full_name;
+                          return (
+                            (u.name && u.name.toLowerCase().includes(q)) ||
+                            (cardName && cardName.toLowerCase().includes(q)) ||
+                            u.email.toLowerCase().includes(q)
+                          );
+                        }).slice(0, 8);
                         return (
                         <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-[#0a0a12] border border-white/10 shadow-lg">
                           {matches.map(u => (
