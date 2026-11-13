@@ -35,6 +35,7 @@ import {
     Package,
     Phone,
     Hash,
+    Gift,
     PencilLine,
     RotateCcw,
     BarChart2,
@@ -302,6 +303,9 @@ export default function AdminPage() {
   const [statsExtraCount, setStatsExtraCount] = useState<number | null>(null);
   const [tessereEntriesOpen, setTessereEntriesOpen] = useState(false);
   const [tessereEntries, setTessereEntries] = useState<{ full_name: string; city: string | null; id_type: string | null; scanned_at: string }[] | null>(null);
+  const [statsPrizesCount, setStatsPrizesCount] = useState<number | null>(null);
+  const [prizesEntriesOpen, setPrizesEntriesOpen] = useState(false);
+  const [statsPrizesList, setStatsPrizesList] = useState<{ id: string; email: string; description: string; photo_url: string | null }[] | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -4650,7 +4654,11 @@ export default function AdminPage() {
                               setStatsExtraCount(null);
                               setTessereEntriesOpen(false);
                               setTessereEntries(null);
+                              setStatsPrizesCount(null);
+                              setPrizesEntriesOpen(false);
+                              setStatsPrizesList(null);
                               fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
+                              fetch(`/api/admin/prizes?event_id=${event.id}`).then((r) => r.json()).then((d) => { if (Array.isArray(d)) setStatsPrizesCount(d.length); }).catch(() => {});
                             }}
                             title="Statistiche evento"
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
@@ -4736,7 +4744,11 @@ export default function AdminPage() {
                                 setStatsExtraCount(null);
                                 setTessereEntriesOpen(false);
                                 setTessereEntries(null);
+                                setStatsPrizesCount(null);
+                                setPrizesEntriesOpen(false);
+                                setStatsPrizesList(null);
                                 fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
+                                fetch(`/api/admin/prizes?event_id=${event.id}`).then((r) => r.json()).then((d) => { if (Array.isArray(d)) setStatsPrizesCount(d.length); }).catch(() => {});
                               }}
                               title="Statistiche evento"
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 transition-all text-[11px] font-medium"
@@ -6207,16 +6219,16 @@ export default function AdminPage() {
         : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
 
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
-                {statsDrilldown || tessereEntriesOpen ? (
-                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                {statsDrilldown || tessereEntriesOpen || prizesEntriesOpen ? (
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
-                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
+                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : prizesEntriesOpen ? "Premi dati" : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
               <div className="flex items-center gap-2">
                 {statsDrilldown && filteredDrilldownList.length > 0 && (
@@ -6247,7 +6259,7 @@ export default function AdminPage() {
                     <Copy size={12} /> Copia nomi
                   </button>
                 )}
-                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
               </div>
             </div>
 
@@ -6268,6 +6280,25 @@ export default function AdminPage() {
                       <span className="flex-shrink-0 text-[11px] text-gray-500 mt-0.5">
                         {new Date(e.scanned_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
                       </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : prizesEntriesOpen ? (
+              /* ── Premios dados para este evento ── */
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                {!statsPrizesList ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Caricamento...</p>
+                ) : statsPrizesList.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Nessun premio dato per questo evento</p>
+                ) : statsPrizesList.map((p) => (
+                  <div key={p.id} className="p-3 rounded-xl border bg-[#0a0a12] border-pink-500/15 flex items-center gap-3">
+                    {p.photo_url && (
+                      <Image src={p.photo_url} alt="" width={44} height={44} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-white truncate">{p.email}</p>
+                      <p className="text-[11px] text-pink-300 truncate">{p.description}</p>
                     </div>
                   </div>
                 ))}
@@ -6404,6 +6435,26 @@ export default function AdminPage() {
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><Plus size={13} className="text-orange-400" /> Entrate extra (senza prenotazione)</span>
                     <span className="text-sm font-bold text-orange-400">{statsExtraCount}</span>
                   </div>
+                )}
+                {statsPrizesCount !== null && statsPrizesCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setPrizesEntriesOpen(true);
+                      if (!statsPrizesList) {
+                        fetch(`/api/admin/prizes?event_id=${statsEvent.id}`)
+                          .then((r) => r.json())
+                          .then((d) => setStatsPrizesList(Array.isArray(d) ? d : []))
+                          .catch(() => setStatsPrizesList([]));
+                      }
+                    }}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><Gift size={13} className="text-pink-400" /> Premi dati</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-pink-400">{statsPrizesCount}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
                 )}
                 {fillRate !== null && (
                   <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
