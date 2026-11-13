@@ -391,6 +391,19 @@ export default function AdminPage() {
   const [customPaymentLink, setCustomPaymentLink] = useState<string | null>(null);
   const [cashSaleDownloadingAll, setCashSaleDownloadingAll] = useState(false);
   const [showLinksSection, setShowLinksSection] = useState(false);
+  // Premios por evento
+  const [showPrizeSection, setShowPrizeSection] = useState(false);
+  const [prizeEventId, setPrizeEventId] = useState("");
+  const [prizeSearch, setPrizeSearch] = useState("");
+  const [prizeSelectedUser, setPrizeSelectedUser] = useState<{ name: string | null; email: string } | null>(null);
+  const [prizeDescription, setPrizeDescription] = useState("");
+  const [prizePhotoUrl, setPrizePhotoUrl] = useState<string | null>(null);
+  const [prizeUploading, setPrizeUploading] = useState(false);
+  const [prizeSaving, setPrizeSaving] = useState(false);
+  const [prizeWhatsapp, setPrizeWhatsapp] = useState<{ url: string; name: string } | null>(null);
+  const [eventPrizes, setEventPrizes] = useState<{ id: string; email: string; description: string; photo_url: string | null }[]>([]);
+  const [scanPrize, setScanPrize] = useState<{ id: string; description: string; photo_url: string | null } | null>(null);
+  const [showScanPrize, setShowScanPrize] = useState(false);
   const [linkEventId, setLinkEventId] = useState("");
   const [linkName, setLinkName] = useState("");
   const [linkPin, setLinkPin] = useState("");
@@ -478,6 +491,8 @@ export default function AdminPage() {
     setScanConfirming(false);
     setScanEventId(null);
     setLiveCounts(null);
+    setScanPrize(null);
+    setShowScanPrize(false);
     lastScannedRef.current = null;
   }, [stopScanner]);
 
@@ -503,6 +518,8 @@ export default function AdminPage() {
     setScanError(null);
     setScanResult(null);
     setCardScanResult(null);
+    setScanPrize(null);
+    setShowScanPrize(false);
     try {
       // Only fetch info — do NOT confirm yet, wait for user to press confirm button
       const infoRes = await fetch(`/api/reservations/${code}`);
@@ -531,6 +548,10 @@ export default function AdminPage() {
               setScanLoading(false);
               if (scanEventId) {
                 fetch(`/api/events/${scanEventId}/live-counts`).then((r) => r.json()).then(setLiveCounts).catch(() => {});
+                if (cardData.card?.email) {
+                  fetch(`/api/admin/prizes/match?event_id=${scanEventId}&email=${encodeURIComponent(cardData.card.email)}`)
+                    .then((r) => r.json()).then((d) => setScanPrize(d.prize || null)).catch(() => {});
+                }
               }
               return;
             }
@@ -613,6 +634,10 @@ export default function AdminPage() {
         userType,
         isVip: reservation.is_vip || false,
       });
+      if (scanEventId && reservation.user_email && reservation.user_email !== "__vip__") {
+        fetch(`/api/admin/prizes/match?event_id=${scanEventId}&email=${encodeURIComponent(reservation.user_email)}`)
+          .then((r) => r.json()).then((d) => setScanPrize(d.prize || null)).catch(() => {});
+      }
     } catch { setScanError("Errore di connessione"); }
     finally { setScanLoading(false); }
   }, [scanEventId]);
@@ -1468,6 +1493,70 @@ export default function AdminPage() {
       } else toast.error(d.error || "Errore");
     } catch { toast.error("Errore di connessione"); }
     finally { setCashSaleGenerating(false); }
+  };
+
+  const fetchEventPrizes = useCallback(async (eventId: string) => {
+    if (!eventId) { setEventPrizes([]); return; }
+    try {
+      const res = await fetch(`/api/admin/prizes?event_id=${eventId}`);
+      const d = await res.json();
+      if (Array.isArray(d)) setEventPrizes(d);
+    } catch { /* lista secundaria, no bloquea el resto */ }
+  }, []);
+
+  const handleUploadPrizePhoto = async (file: File) => {
+    setPrizeUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/admin/prizes/upload", { method: "POST", body: formData });
+      const d = await res.json();
+      if (res.ok) setPrizePhotoUrl(d.url);
+      else toast.error(d.error || "Errore caricamento foto");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPrizeUploading(false); }
+  };
+
+  const handleSavePrize = async () => {
+    if (!prizeEventId) { toast.error("Seleziona un evento"); return; }
+    if (!prizeSelectedUser) { toast.error("Seleziona una persona dalla lista Utenti"); return; }
+    if (!prizeDescription.trim()) { toast.error("Scrivi cosa ha vinto"); return; }
+    setPrizeSaving(true);
+    try {
+      const res = await fetch("/api/admin/prizes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_id: prizeEventId,
+          email: prizeSelectedUser.email,
+          description: prizeDescription.trim(),
+          photo_url: prizePhotoUrl,
+        }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        toast.success("Premio salvato! Email inviata.");
+        if (d.phone) {
+          const text = `Ciao${prizeSelectedUser.name ? ` ${prizeSelectedUser.name}` : ""}! 🎁 Hai vinto: "${prizeDescription.trim()}" per ${d.event_title}. Vieni a ritirarlo!`;
+          setPrizeWhatsapp({ url: `https://wa.me/${d.phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(text)}`, name: prizeSelectedUser.name || prizeSelectedUser.email });
+        } else {
+          setPrizeWhatsapp(null);
+        }
+        setPrizeSelectedUser(null);
+        setPrizeSearch("");
+        setPrizeDescription("");
+        setPrizePhotoUrl(null);
+        fetchEventPrizes(prizeEventId);
+      } else toast.error(d.error || "Errore");
+    } catch { toast.error("Errore di connessione"); }
+    finally { setPrizeSaving(false); }
+  };
+
+  const handleDeletePrize = async (id: string) => {
+    if (!confirm("Eliminare questo premio?")) return;
+    const res = await fetch(`/api/admin/prizes/${id}`, { method: "DELETE" });
+    if (res.ok) { toast.success("Premio eliminato"); fetchEventPrizes(prizeEventId); }
+    else toast.error("Errore eliminazione");
   };
 
   const openRentalPaymentForm = (item: RentalItem) => {
@@ -2888,6 +2977,139 @@ export default function AdminPage() {
                         );
                       })}
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── Premios por evento ─── */}
+            <button
+              onClick={() => setShowPrizeSection(!showPrizeSection)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all mb-4"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                🎁 Premios
+              </span>
+              <span className={`text-xs text-gray-400 transition-transform ${showPrizeSection ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {showPrizeSection && (
+              <div className="p-4 rounded-xl bg-white/5 border border-pink-500/20 mb-4">
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Elegí a alguien de tu lista de Utenti (ya registrado o con tessera) y asignale un premio para un
+                  evento — no hace falta que haya reservado para esa fiesta todavía. Se le avisa por email
+                  automático y te doy un link de WhatsApp para mandarle vos también. Cuando lo escaneás (QR o
+                  tessera) en ese evento, te va a aparecer el premio.
+                </p>
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 mb-1 block">Evento</label>
+                  <select
+                    value={prizeEventId}
+                    onChange={(e) => { setPrizeEventId(e.target.value); fetchEventPrizes(e.target.value); }}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40 [color-scheme:dark]"
+                  >
+                    <option value="">Seleziona evento</option>
+                    {events.filter(e => !e.archived).map(ev => (
+                      <option key={ev.id} value={ev.id}>{ev.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mb-3 relative">
+                  <label className="text-xs text-gray-400 mb-1 block">Persona</label>
+                  {prizeSelectedUser ? (
+                    <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-pink-500/10 border border-pink-500/30 text-sm">
+                      <span className="text-white truncate">{prizeSelectedUser.name || prizeSelectedUser.email}</span>
+                      <button onClick={() => { setPrizeSelectedUser(null); setPrizeSearch(""); }} className="text-gray-400 hover:text-white flex-shrink-0 ml-2"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        value={prizeSearch}
+                        onChange={(e) => setPrizeSearch(e.target.value)}
+                        placeholder="Cerca per nome o email..."
+                        className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-pink-500/40"
+                      />
+                      {prizeSearch.trim() && (
+                        <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-[#0a0a12] border border-white/10 shadow-lg">
+                          {users.filter(u =>
+                            (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
+                            u.email.toLowerCase().includes(prizeSearch.toLowerCase())
+                          ).slice(0, 8).map(u => (
+                            <button
+                              key={u.id}
+                              onClick={() => { setPrizeSelectedUser({ name: u.name ?? null, email: u.email }); setPrizeSearch(""); }}
+                              className="w-full text-left px-3 py-2 hover:bg-white/5 text-sm border-b border-white/5 last:border-0"
+                            >
+                              <span className="text-white block truncate">{u.name || u.email}</span>
+                              {u.name && <span className="text-gray-500 text-xs block truncate">{u.email}</span>}
+                            </button>
+                          ))}
+                          {users.filter(u =>
+                            (u.name && u.name.toLowerCase().includes(prizeSearch.toLowerCase())) ||
+                            u.email.toLowerCase().includes(prizeSearch.toLowerCase())
+                          ).length === 0 && (
+                            <p className="px-3 py-2 text-xs text-gray-500">Nessun utente trovato</p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 mb-1 block">Cosa ha vinto</label>
+                  <textarea
+                    value={prizeDescription}
+                    onChange={(e) => setPrizeDescription(e.target.value)}
+                    placeholder="es. Hai vinto uno shot gratis!"
+                    rows={2}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-pink-500/40 resize-none"
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 mb-1 block">Foto (opzionale)</label>
+                  <div className="flex items-center gap-2">
+                    {prizePhotoUrl && (
+                      <Image src={prizePhotoUrl} alt="" width={48} height={48} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                    )}
+                    <label className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white/5 border border-dashed border-white/20 text-gray-400 text-xs cursor-pointer hover:border-pink-500/40 transition-all">
+                      <Upload size={13} /> {prizeUploading ? "Caricamento..." : prizePhotoUrl ? "Cambia foto" : "Carica foto"}
+                      <input type="file" accept="image/*" className="hidden" disabled={prizeUploading} onChange={(e) => e.target.files?.[0] && handleUploadPrizePhoto(e.target.files[0])} />
+                    </label>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSavePrize}
+                  disabled={prizeSaving}
+                  className="w-full py-2.5 rounded-xl bg-pink-600 text-white font-semibold text-sm hover:bg-pink-500 transition-all disabled:opacity-50 active:scale-95"
+                >
+                  {prizeSaving ? "Salvataggio..." : "Salva e avvisa"}
+                </button>
+
+                {prizeWhatsapp && (
+                  <div className="mt-3 p-3 rounded-xl bg-green-500/10 border border-green-500/25 space-y-2">
+                    <p className="text-xs text-green-300">✅ Salvato — email inviata a {prizeWhatsapp.name}.</p>
+                    <a
+                      href={prizeWhatsapp.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-600/90 text-white text-xs font-medium hover:bg-green-500 transition-all active:scale-95"
+                    >
+                      <MessageCircle size={14} /> Avvisa anche su WhatsApp
+                    </a>
+                  </div>
+                )}
+
+                {prizeEventId && eventPrizes.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
+                    <p className="text-[11px] text-gray-500">Premi per questo evento ({eventPrizes.length})</p>
+                    {eventPrizes.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-white/5 border border-white/10">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-gray-300 truncate">{p.email}</p>
+                          <p className="text-xs text-pink-300 truncate">{p.description}</p>
+                        </div>
+                        <button onClick={() => handleDeletePrize(p.id)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0"><Trash2 size={13} /></button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -5753,6 +5975,25 @@ export default function AdminPage() {
                     </div>
                   )}
                   {scanResult.isGroup && <div className="mb-5" />}
+                  {scanPrize && (
+                    <div className="mb-4">
+                      <button
+                        onClick={() => setShowScanPrize((v) => !v)}
+                        className="w-full flex items-center justify-between gap-2 p-3 rounded-xl bg-pink-500/10 border border-pink-500/30 text-left"
+                      >
+                        <span className="flex items-center gap-2 text-sm font-semibold text-pink-300">🎁 Ha vinto un premio!</span>
+                        <ChevronRight size={14} className={`text-pink-400 transition-transform flex-shrink-0 ${showScanPrize ? "rotate-90" : ""}`} />
+                      </button>
+                      {showScanPrize && (
+                        <div className="mt-2 p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                          {scanPrize.photo_url && (
+                            <Image src={scanPrize.photo_url} alt="" width={300} height={160} className="w-full h-28 rounded-lg object-cover" />
+                          )}
+                          <p className="text-sm text-pink-200">{scanPrize.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     <button
                       onClick={() => { setScanResult(null); lastScannedRef.current = null; startScanner(); }}
@@ -5807,6 +6048,25 @@ export default function AdminPage() {
                       <p className="text-gray-600 text-xs font-mono mb-6">{scanResult.code}</p>
                     </>
                   )}
+                  {scanPrize && (
+                    <div className="mb-4 text-left">
+                      <button
+                        onClick={() => setShowScanPrize((v) => !v)}
+                        className="w-full flex items-center justify-between gap-2 p-3 rounded-xl bg-pink-500/10 border border-pink-500/30"
+                      >
+                        <span className="flex items-center gap-2 text-sm font-semibold text-pink-300">🎁 Ha vinto un premio!</span>
+                        <ChevronRight size={14} className={`text-pink-400 transition-transform flex-shrink-0 ${showScanPrize ? "rotate-90" : ""}`} />
+                      </button>
+                      {showScanPrize && (
+                        <div className="mt-2 p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                          {scanPrize.photo_url && (
+                            <Image src={scanPrize.photo_url} alt="" width={300} height={160} className="w-full h-28 rounded-lg object-cover" />
+                          )}
+                          <p className="text-sm text-pink-200">{scanPrize.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     <button onClick={() => { setScanSuccess(false); setScanResult(null); setScanError(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
                     <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>
@@ -5837,6 +6097,25 @@ export default function AdminPage() {
                     {cardScanResult.logged ? "✅ Tessera — Ingresso registrato!" : "⚠️ Tessera già entrata in questo evento"}
                   </p>
                   <p className="text-gray-400 text-sm">Ingressi totali: <span className="text-white font-bold">{cardScanResult.visit_count}</span></p>
+                  {scanPrize && (
+                    <div className="text-left">
+                      <button
+                        onClick={() => setShowScanPrize((v) => !v)}
+                        className="w-full flex items-center justify-between gap-2 p-3 rounded-xl bg-pink-500/10 border border-pink-500/30"
+                      >
+                        <span className="flex items-center gap-2 text-sm font-semibold text-pink-300">🎁 Ha vinto un premio!</span>
+                        <ChevronRight size={14} className={`text-pink-400 transition-transform flex-shrink-0 ${showScanPrize ? "rotate-90" : ""}`} />
+                      </button>
+                      {showScanPrize && (
+                        <div className="mt-2 p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                          {scanPrize.photo_url && (
+                            <Image src={scanPrize.photo_url} alt="" width={300} height={160} className="w-full h-28 rounded-lg object-cover" />
+                          )}
+                          <p className="text-sm text-pink-200">{scanPrize.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-3 pt-2">
                     <button onClick={() => { setCardScanResult(null); lastScannedRef.current = null; startScanner(); }} className="flex-1 py-3 rounded-xl bg-green-500/20 text-green-400 font-semibold hover:bg-green-500/30 transition-all active:scale-95 text-sm">Scansiona ancora</button>
                     <button onClick={closeScanner} className="flex-1 py-3 rounded-xl bg-white/5 text-gray-300 font-semibold hover:bg-white/10 transition-all active:scale-95 text-sm">Chiudi</button>

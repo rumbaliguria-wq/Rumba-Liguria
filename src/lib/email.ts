@@ -268,3 +268,34 @@ export function cardDeactivatedHtml(opts: { fullName: string; reason: string | n
 </body>
 </html>`;
 }
+
+export function prizeNotificationHtml(opts: { eventTitle: string; description: string; photoUrl?: string | null }) {
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#000;font-family:sans-serif;color:#fff;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain"
+        width="64" height="64" style="border-radius:50%;border:2px solid #ec4899;" alt="Rumba Liguria" />
+      <p style="color:#ec4899;font-size:12px;font-weight:bold;letter-spacing:2px;margin:12px 0 4px;">RUMBA LIGURIA</p>
+      <h1 style="font-size:24px;margin:0 0 4px;">🎁 Hai vinto un regalo!</h1>
+    </div>
+    <div style="background:#0a0a12;border:1px solid #3a1e2e;border-radius:16px;overflow:hidden;">
+      ${opts.photoUrl ? `<img src="${opts.photoUrl}" alt="" style="width:100%;display:block;" />` : ""}
+      <div style="padding:24px;text-align:center;">
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">Per l'evento</p>
+        <h2 style="color:#fff;font-size:20px;margin:0 0 16px;">${opts.eventTitle}</h2>
+        <div style="background:#1a0f16;border:1px solid #3a1e2e;border-radius:12px;padding:18px;">
+          <p style="color:#f9a8d4;font-size:16px;font-weight:600;margin:0;">${opts.description}</p>
+        </div>
+      </div>
+    </div>
+    <p style="text-align:center;color:#4b5563;font-size:12px;margin-top:20px;">
+      Ritira il tuo regalo presentandoti all'evento — ti basta la tua entrata o la tua tessera.
+    </p>
+  </div>
+</body>
+</html>`;
+}
