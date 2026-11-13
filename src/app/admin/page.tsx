@@ -3062,7 +3062,12 @@ export default function AdminPage() {
                               className="w-full text-left px-3 py-2 hover:bg-white/5 text-sm border-b border-white/5 last:border-0"
                             >
                               <span className="text-white block truncate">{u.name || u.email}</span>
-                              {u.name && <span className="text-gray-500 text-xs block truncate">{u.email}</span>}
+                              <div className="flex items-center justify-between gap-2">
+                                {u.name && <span className="text-gray-500 text-xs truncate">{u.email}</span>}
+                                {cardsByEmail.has(u.email.toLowerCase()) && (
+                                  <span className="flex-shrink-0 flex items-center gap-1 text-[10px] text-pink-400"><IdCard size={11} /> Tessera</span>
+                                )}
+                              </div>
                             </button>
                           ))}
                           {matches.length === 0 && (
