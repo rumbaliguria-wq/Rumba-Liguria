@@ -425,6 +425,7 @@ export default function AdminPage() {
   const [pinDraft, setPinDraft] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
   const [expandedLinkKey, setExpandedLinkKey] = useState<string | null>(null);
+  const [linkDrilldown, setLinkDrilldown] = useState<{ name: string; eventTitle: string; list: Reservation[] } | null>(null);
   const [openArchivedLinkEvent, setOpenArchivedLinkEvent] = useState<string | null>(null);
   // Reasignar un link que ya trabajó en un evento archiviato a un evento
   // activo nuevo — mismo nombre, mismo link que ya tiene el RR.PP., vuelve
@@ -3273,14 +3274,14 @@ export default function AdminPage() {
                     // can get reassigned across several events over time, and we
                     // want to know exactly how many people each one brought to
                     // each specific party, to know who to pay for which event.
-                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null; createdAt: string }> = {};
+                    const linkStats: Record<string, { name: string; total: number; used: number; eventId: string; eventTitle: string; archived: boolean; pin?: string | null; createdAt: string; list: Reservation[] }> = {};
                     // Primero se listan todos los links creados (fila "stub",
                     // user_email = __link__nombre__), aunque todavía no tengan
                     // ninguna reserva — así siempre se puede ver/cambiar su PIN.
                     reservations.forEach(r => {
                       if (r.user_email?.startsWith("__link__")) {
                         const key = `${r.user_name}::${r.event_id}`;
-                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin, createdAt: r.created_at };
+                        linkStats[key] = { name: r.user_name, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: r.link_pin, createdAt: r.created_at, list: [] };
                       }
                     });
                     reservations.forEach(r => {
@@ -3288,9 +3289,10 @@ export default function AdminPage() {
                       if (refMatch) {
                         const refName = refMatch[1];
                         const key = `${refName}::${r.event_id}`;
-                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined, createdAt: r.created_at };
+                        if (!linkStats[key]) linkStats[key] = { name: refName, total: 0, used: 0, eventId: r.event_id, eventTitle: r.events?.title || "", archived: !!r.events?.archived, pin: undefined, createdAt: r.created_at, list: [] };
                         linkStats[key].total += r.guest_count;
                         if (r.status === "used") linkStats[key].used += r.guest_count;
+                        linkStats[key].list.push(r);
                       }
                     });
                     const all = Object.values(linkStats);
@@ -3342,8 +3344,15 @@ export default function AdminPage() {
                                         {stats.pin ? `PIN ${stats.pin}` : "Imposta PIN"}
                                       </button>
                                     )}
-                                    <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
-                                    <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                    <button
+                                      onClick={() => stats.list.length > 0 && setLinkDrilldown({ name: stats.name, eventTitle: stats.eventTitle, list: stats.list })}
+                                      disabled={stats.list.length === 0}
+                                      title={stats.list.length > 0 ? "Vedi chi ha prenotato con questo link" : undefined}
+                                      className={`flex items-center gap-2 ${stats.list.length === 0 ? "cursor-default" : ""}`}
+                                    >
+                                      <span className={`text-[10px] text-blue-400 ${stats.list.length > 0 ? "underline decoration-dotted" : ""}`}>{stats.total} prenot.</span>
+                                      <span className={`text-[10px] text-green-400 ${stats.list.length > 0 ? "underline decoration-dotted" : ""}`}>{stats.used} entrati</span>
+                                    </button>
                                   </div>
                                 </div>
                                 {editingPinKey === pinKey && (
@@ -3458,8 +3467,15 @@ export default function AdminPage() {
                                                     {stats.pin ? `PIN ${stats.pin}` : "Imposta PIN"}
                                                   </button>
                                                 )}
-                                                <span className="text-[10px] text-blue-400">{stats.total} prenot.</span>
-                                                <span className="text-[10px] text-green-400">{stats.used} entrati</span>
+                                                <button
+                                                  onClick={() => stats.list.length > 0 && setLinkDrilldown({ name: stats.name, eventTitle: stats.eventTitle, list: stats.list })}
+                                                  disabled={stats.list.length === 0}
+                                                  title={stats.list.length > 0 ? "Vedi chi ha prenotato con questo link" : undefined}
+                                                  className={`flex items-center gap-2 ${stats.list.length === 0 ? "cursor-default" : ""}`}
+                                                >
+                                                  <span className={`text-[10px] text-blue-400 ${stats.list.length > 0 ? "underline decoration-dotted" : ""}`}>{stats.total} prenot.</span>
+                                                  <span className={`text-[10px] text-green-400 ${stats.list.length > 0 ? "underline decoration-dotted" : ""}`}>{stats.used} entrati</span>
+                                                </button>
                                                 <button
                                                   onClick={() => { setReactivatingLinkKey(v => v === pinKey ? null : pinKey); setReactivateEventId(""); }}
                                                   className="text-[10px] text-purple-400 hover:text-purple-300 font-medium underline decoration-dotted"
@@ -6560,6 +6576,42 @@ export default function AdminPage() {
         </div>
       );
     })()}
+
+    {/* ─── Quién reservó/entró con un Link Personalizzato ─── */}
+    {linkDrilldown && (
+      <div
+        className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4"
+        onClick={() => setLinkDrilldown(null)}
+      >
+        <div
+          className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
+            <div className="min-w-0">
+              <h3 className="font-bold text-white text-base truncate">{linkDrilldown.name}</h3>
+              <p className="text-xs text-gray-500 truncate">{linkDrilldown.eventTitle}</p>
+            </div>
+            <button onClick={() => setLinkDrilldown(null)} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all flex-shrink-0"><X size={15} /></button>
+          </div>
+          <div className="overflow-y-auto flex-1 p-4 space-y-2">
+            {linkDrilldown.list.map((r) => (
+              <div key={r.id} className={`p-3 rounded-xl border bg-[#0a0a12] ${r.status === "used" ? "border-green-500/25" : r.status === "cancelled" ? "border-white/5 opacity-50" : "border-blue-500/15"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate">{r.user_name.replace(/\s*\[(ref|tipo):[^\]]+\]/g, "").trim() || "—"}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{r.user_email} · {r.guest_count} {r.guest_count === 1 ? "persona" : "persone"}</p>
+                  </div>
+                  <span className={`flex-shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full ${r.status === "used" ? "bg-green-500/15 text-green-400" : r.status === "cancelled" ? "bg-gray-500/10 text-gray-400" : "bg-blue-500/10 text-blue-400"}`}>
+                    {r.status === "used" ? "Entrato" : r.status === "cancelled" ? "Cancellata" : "Attiva"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ─── Tessera rapida — vista desde Prenotazioni/Utenti ─── */}
     {viewingCard && (
