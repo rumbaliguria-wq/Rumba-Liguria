@@ -6467,6 +6467,18 @@ export default function AdminPage() {
                     <div className="h-full rounded-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
+                {entered > 0 && (
+                  <button
+                    onClick={() => setStatsDrilldown({ label: "Entrate con QR", list: evRes.filter(r => r.status === "used") })}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><Ticket size={13} className="text-purple-400" /> Entrate con QR</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-purple-400">{entered}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
+                )}
                 {statsTessereCount !== null && statsTessereCount > 0 && (
                   <button
                     onClick={() => {
