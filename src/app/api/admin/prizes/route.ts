@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const expiresLabel = new Date(expiresAtIso).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" });
+  const expiresLabel = new Date(expiresAtIso).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" });
 
   // Email automático — no requiere ninguna acción más del admin.
   try {

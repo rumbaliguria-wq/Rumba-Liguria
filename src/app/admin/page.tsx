@@ -1542,7 +1542,7 @@ export default function AdminPage() {
       const d = await res.json();
       if (res.ok) {
         toast.success("Premio salvato! Email inviata.");
-        const expiresLabel = d.expires_at ? new Date(d.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : null;
+        const expiresLabel = d.expires_at ? new Date(d.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }) : null;
         if (d.phone) {
           const text = `Ciao${prizeSelectedUser.name ? ` ${prizeSelectedUser.name}` : ""}! 🎁 Hai vinto: "${prizeDescription.trim()}" per ${d.event_title}.${expiresLabel ? ` Valido fino al ${expiresLabel}.` : ""} Vieni a ritirarlo!`;
           setPrizeWhatsapp({ url: `https://wa.me/${d.phone.replace(/[^0-9+]/g, "")}?text=${encodeURIComponent(text)}`, name: prizeSelectedUser.name || prizeSelectedUser.email });
@@ -3148,7 +3148,7 @@ export default function AdminPage() {
                           <p className="text-xs text-gray-300 truncate">{p.email}</p>
                           <p className="text-xs text-pink-300 truncate">{p.description}</p>
                           <p className="text-[10px] text-gray-500">
-                            {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                            {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" })}` : ""}
                           </p>
                         </div>
                         <button onClick={() => handleDeletePrize(p.id)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0"><Trash2 size={13} /></button>
@@ -6343,7 +6343,7 @@ export default function AdminPage() {
                       <p className="text-sm text-white truncate">{p.email}</p>
                       <p className="text-[11px] text-pink-300 truncate">{p.description}</p>
                       <p className="text-[10px] text-gray-500">
-                        {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                        {p.claimed_at ? "✅ Ritirato" : expired ? "⏰ Scaduto" : p.expires_at ? `Scade: ${new Date(p.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" })}` : ""}
                       </p>
                     </div>
                   </div>
