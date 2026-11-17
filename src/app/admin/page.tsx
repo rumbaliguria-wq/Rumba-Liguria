@@ -306,6 +306,13 @@ export default function AdminPage() {
   const [statsPrizesCount, setStatsPrizesCount] = useState<number | null>(null);
   const [prizesEntriesOpen, setPrizesEntriesOpen] = useState(false);
   const [statsPrizesList, setStatsPrizesList] = useState<{ id: string; email: string; description: string; photo_url: string | null; expires_at: string | null; claimed_at: string | null }[] | null>(null);
+  // Tarjeta de socio: quién reservó y asistió / reservó y no asistió / asistió sin reservar, para este evento.
+  const [cardActivity, setCardActivity] = useState<{
+    reserved_attended: { full_name: string; city: string | null; id_type: string | null }[];
+    reserved_not_attended: { full_name: string; city: string | null; id_type: string | null }[];
+    attended_without_reservation: { full_name: string; city: string | null; id_type: string | null }[];
+  } | null>(null);
+  const [cardActivityOpen, setCardActivityOpen] = useState<"reserved_attended" | "reserved_not_attended" | "attended_without_reservation" | null>(null);
   const [statsDrilldown, setStatsDrilldown] = useState<{ label: string; list: Reservation[] } | null>(null);
   const [drilldownTypeFilter, setDrilldownTypeFilter] = useState<string>("all");
   const [placeSuggestions, setPlaceSuggestions] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
@@ -459,7 +466,7 @@ export default function AdminPage() {
   const [scanEventId, setScanEventId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [scanResult, setScanResult] = useState<{ name: string; email: string; event: string; code: string; rawCode: string; userType?: string; isVip?: boolean; isGroup?: boolean; groupLabel?: string; groupCount?: number; groupMax?: number | null } | null>(null);
-  const [cardScanResult, setCardScanResult] = useState<{ full_name: string; photo_url: string | null; id_type: string | null; visit_count: number; logged: boolean; eventTitle?: string } | null>(null);
+  const [cardScanResult, setCardScanResult] = useState<{ full_name: string; photo_url: string | null; id_type: string | null; visit_count: number; logged: boolean; eventTitle?: string; activated: boolean | null } | null>(null);
   const [liveCounts, setLiveCounts] = useState<{ reservations: number; tessere: number; extra: number } | null>(null);
   const [extraEntryLoading, setExtraEntryLoading] = useState(false);
   const [scanConfirming, setScanConfirming] = useState(false);
@@ -550,6 +557,7 @@ export default function AdminPage() {
                 visit_count: cardData.visit_count,
                 logged: cardData.logged,
                 eventTitle: cardData.scan?.events?.title,
+                activated: cardData.activated,
               });
               setScanLoading(false);
               if (scanEventId) {
@@ -4714,8 +4722,11 @@ export default function AdminPage() {
                               setStatsPrizesCount(null);
                               setPrizesEntriesOpen(false);
                               setStatsPrizesList(null);
+                              setCardActivity(null);
+                              setCardActivityOpen(null);
                               fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
                               fetch(`/api/admin/prizes?event_id=${event.id}`).then((r) => r.json()).then((d) => { if (Array.isArray(d)) setStatsPrizesCount(d.length); }).catch(() => {});
+                              fetch(`/api/events/${event.id}/card-activity`).then((r) => r.json()).then((d) => setCardActivity(d)).catch(() => {});
                             }}
                             title="Statistiche evento"
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-all active:bg-purple-500/20"
@@ -4804,8 +4815,11 @@ export default function AdminPage() {
                                 setStatsPrizesCount(null);
                                 setPrizesEntriesOpen(false);
                                 setStatsPrizesList(null);
+                                setCardActivity(null);
+                                setCardActivityOpen(null);
                                 fetch(`/api/events/${event.id}/live-counts`).then((r) => r.json()).then((d) => { setStatsTessereCount(d.tessere ?? 0); setStatsExtraCount(d.extra ?? 0); }).catch(() => {});
                                 fetch(`/api/admin/prizes?event_id=${event.id}`).then((r) => r.json()).then((d) => { if (Array.isArray(d)) setStatsPrizesCount(d.length); }).catch(() => {});
+                                fetch(`/api/events/${event.id}/card-activity`).then((r) => r.json()).then((d) => setCardActivity(d)).catch(() => {});
                               }}
                               title="Statistiche evento"
                               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 transition-all text-[11px] font-medium"
@@ -6166,6 +6180,11 @@ export default function AdminPage() {
                     {cardScanResult.logged ? "✅ Tessera — Ingresso registrato!" : "⚠️ Tessera già entrata in questo evento"}
                   </p>
                   <p className="text-gray-400 text-sm">Ingressi totali: <span className="text-white font-bold">{cardScanResult.visit_count}</span></p>
+                  {cardScanResult.activated === false && (
+                    <p className="text-sm font-semibold text-orange-400 bg-orange-500/10 border border-orange-500/30 rounded-xl py-2 px-3">
+                      ⚠️ Tessera non attivata per questo evento
+                    </p>
+                  )}
                   {scanPrize && (
                     <div className="text-left">
                       <button
@@ -6275,19 +6294,40 @@ export default function AdminPage() {
         ? fullDrilldownList
         : fullDrilldownList.filter(r => drilldownTypeOf(r) === drilldownTypeFilter);
 
+      const CARD_ACTIVITY_LABELS: Record<string, string> = {
+        reserved_attended: "Riservato e presente",
+        reserved_not_attended: "Riservato ma assente",
+        attended_without_reservation: "Presente senza riserva",
+      };
+      const cardActivityList = cardActivityOpen ? cardActivity?.[cardActivityOpen] ?? [] : [];
+
       return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); } }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4" onClick={e => { if (e.target === e.currentTarget) { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); setCardActivityOpen(null); } }}>
           <div className="w-full sm:max-w-md bg-[#0d0d1a] sm:rounded-2xl rounded-t-2xl border border-white/10 overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-2">
-                {statsDrilldown || tessereEntriesOpen || prizesEntriesOpen ? (
-                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
+                {statsDrilldown || tessereEntriesOpen || prizesEntriesOpen || cardActivityOpen ? (
+                  <button onClick={() => { setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); setCardActivityOpen(null); }} className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all mr-1"><ChevronLeft size={15} /></button>
                 ) : (
                   <BarChart2 size={16} className="text-purple-400" />
                 )}
-                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : prizesEntriesOpen ? "Premi dati" : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
+                <h3 className="font-bold text-white text-base">{tessereEntriesOpen ? "Entrate con tessera" : prizesEntriesOpen ? "Premi dati" : cardActivityOpen ? CARD_ACTIVITY_LABELS[cardActivityOpen] : statsDrilldown ? statsDrilldown.label : "Statistiche"}</h3>
               </div>
               <div className="flex items-center gap-2">
+                {cardActivityOpen && cardActivityList.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const names = cardActivityList.map(e => e.full_name).filter(Boolean);
+                      if (names.length === 0) { toast.error("Nessun nome da copiare"); return; }
+                      navigator.clipboard.writeText(names.join("\n"))
+                        .then(() => toast.success(`${names.length} nomi copiati!`))
+                        .catch(() => toast.error("Errore durante la copia"));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-all active:scale-95"
+                  >
+                    <Copy size={12} /> Copia nomi
+                  </button>
+                )}
                 {statsDrilldown && filteredDrilldownList.length > 0 && (
                   <button
                     onClick={() => {
@@ -6316,11 +6356,23 @@ export default function AdminPage() {
                     <Copy size={12} /> Copia nomi
                   </button>
                 )}
-                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
+                <button onClick={() => { setStatsEvent(null); setStatsDrilldown(null); setDrilldownTypeFilter("all"); setTessereEntriesOpen(false); setPrizesEntriesOpen(false); setCardActivityOpen(null); }} className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white transition-all"><X size={15} /></button>
               </div>
             </div>
 
-            {tessereEntriesOpen ? (
+            {cardActivityOpen ? (
+              /* ── Tarjeta de socio: lista de la categoría elegida ── */
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                {cardActivityList.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8 text-sm">Nessun nome in questa categoria</p>
+                ) : cardActivityList.map((e, i) => (
+                  <div key={i} className="p-3 rounded-xl border bg-[#0a0a12] border-blue-500/15">
+                    <p className="text-sm font-semibold text-white truncate">{e.full_name}</p>
+                    {e.city && <p className="text-[11px] text-gray-400 truncate">{e.city}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : tessereEntriesOpen ? (
               /* ── Tessera entries list ── */
               <div className="overflow-y-auto flex-1 p-4 space-y-2">
                 {!tessereEntries ? (
@@ -6495,6 +6547,42 @@ export default function AdminPage() {
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-pink-400" /> Entrate con tessera</span>
                     <span className="flex items-center gap-1">
                       <span className="text-sm font-bold text-pink-400">{statsTessereCount}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
+                )}
+                {cardActivity && cardActivity.reserved_attended.length > 0 && (
+                  <button
+                    onClick={() => setCardActivityOpen("reserved_attended")}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-blue-400" /> Riservato e presente</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-blue-400">{cardActivity.reserved_attended.length}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
+                )}
+                {cardActivity && cardActivity.reserved_not_attended.length > 0 && (
+                  <button
+                    onClick={() => setCardActivityOpen("reserved_not_attended")}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-yellow-400" /> Riservato ma assente</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-yellow-400">{cardActivity.reserved_not_attended.length}</span>
+                      <ChevronRight size={12} className="text-gray-600" />
+                    </span>
+                  </button>
+                )}
+                {cardActivity && cardActivity.attended_without_reservation.length > 0 && (
+                  <button
+                    onClick={() => setCardActivityOpen("attended_without_reservation")}
+                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
+                  >
+                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-orange-400" /> Presente senza riserva</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-orange-400">{cardActivity.attended_without_reservation.length}</span>
                       <ChevronRight size={12} className="text-gray-600" />
                     </span>
                   </button>

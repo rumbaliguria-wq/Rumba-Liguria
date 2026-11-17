@@ -269,6 +269,39 @@ export function cardDeactivatedHtml(opts: { fullName: string; reason: string | n
 </html>`;
 }
 
+export function tesseraActivatedHtml(opts: { eventTitle: string; fullName?: string | null; invoiceUrl?: string | null }) {
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#000;font-family:sans-serif;color:#fff;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/render/image/public/project-uploads/659b52a5-69ae-4783-b222-bf54f8c81855/logo-1771260580239.png?width=200&height=200&resize=contain"
+        width="64" height="64" style="border-radius:50%;border:2px solid #3b82f6;" alt="Rumba Liguria" />
+      <h1 style="color:#3b82f6;font-size:22px;margin:12px 0 4px;">Tessera attivata</h1>
+    </div>
+    <div style="background:#0a0a12;border:1px solid #1e3a5f;border-radius:16px;padding:24px;text-align:center;">
+      ${opts.fullName ? `<p style="color:#9ca3af;margin:0 0 4px;">Ciao ${opts.fullName},</p>` : ""}
+      <p style="color:#d1d5db;font-size:15px;line-height:1.6;margin:0 0 16px;">La tua prenotazione è confermata per:</p>
+      <h2 style="color:#fff;font-size:20px;margin:0 0 20px;">${opts.eventTitle}</h2>
+      <div style="background:#1e3a5f20;border:1px solid #1e3a5f40;border-radius:12px;padding:14px;">
+        <p style="color:#60a5fa;font-size:14px;font-weight:600;margin:0;">🪪 Usa la tua tessera per entrare</p>
+      </div>
+    </div>
+    ${opts.invoiceUrl ? `
+    <a href="${opts.invoiceUrl}" style="display:block;background:#1f2937;border:1px solid #374151;color:#e5e7eb;text-align:center;padding:12px;border-radius:12px;text-decoration:none;font-weight:600;font-size:14px;margin-top:16px;">
+      📄 Scarica la fattura
+    </a>
+    ` : ""}
+    <p style="text-align:center;color:#4b5563;font-size:12px;margin-top:20px;">
+      Non ti serve nessun QR nuovo — mostra la tua tessera all'ingresso, come sempre.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
 export function prizeNotificationHtml(opts: { eventTitle: string; description: string; photoUrl?: string | null; expiresLabel?: string | null }) {
   return `
 <!DOCTYPE html>

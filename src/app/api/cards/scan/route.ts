@@ -58,11 +58,34 @@ export async function POST(req: Request) {
     scans.unshift(inserted);
   }
 
+  // Socio: ¿esta tessera tiene una reserva hecha para esta fiesta en
+  // concreto? Si sí, se marca "used" (asistió) para que cuente igual que un
+  // QR escaneado. Si no, se deja entrar igual (abajo el front avisa "Tessera
+  // non attivata"), pero queda sin reserva para las estadísticas del evento.
+  // "Evento Privato" (eventId null) no tiene reservas propias, no aplica.
+  let activated: boolean | null = null;
+  if (eventId !== null) {
+    const { data: activationRes, error: activationError } = await supabase
+      .from("reservations")
+      .select("id, status")
+      .eq("card_id", card.id)
+      .eq("event_id", eventId)
+      .in("status", ["active", "used"])
+      .limit(1)
+      .maybeSingle();
+    if (activationError) return NextResponse.json({ error: activationError.message }, { status: 500 });
+    activated = !!activationRes;
+    if (activationRes && activationRes.status === "active" && !isDuplicate) {
+      await supabase.from("reservations").update({ status: "used" }).eq("id", activationRes.id);
+    }
+  }
+
   return NextResponse.json({
     card,
     logged: !isDuplicate,
     visit_count: scans.length,
     recent_scans: scans.slice(0, 5),
     scan: newScan || existingForEvent,
+    activated,
   });
 }

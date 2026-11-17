@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { sendEmail, qrTicketHtml } from "@/lib/email";
+import { sendEmail, qrTicketHtml, tesseraActivatedHtml } from "@/lib/email";
 import { decodePhoneField } from "@/lib/userPhone";
 import { getEventExpiryUTC, getSaleCloseUTC } from "@/lib/eventExpiry";
 import { decodeSaleConfig } from "@/lib/saleConfig";
@@ -162,6 +162,21 @@ export async function createReservationsAndNotify({
   // en vez de negro, para que combine con lo que ve en el sitio.
   ticketColor?: string | null;
 }) {
+  // Socio: si el email ya tiene una tessera hecha, esta reserva no le genera
+  // un biglietto/QR nuevo — queda ligada a la tessera de siempre (card_id),
+  // y se "entrega" cuando se la escanea en la puerta, no por email. Solo
+  // aplica a una reserva genuina de una sola persona (guest_count 1) hecha
+  // por el propio socio, no a una venta en efectivo tecleada por el admin
+  // (nameOverride) ni a una compra de varios tickets a la vez (serían para
+  // sus amigos, no todos tienen la misma tessera).
+  const { data: card } = guest_count === 1 && !nameOverride
+    ? await supabase
+        .from("client_cards")
+        .select("id, full_name")
+        .eq("email", user_email)
+        .maybeSingle()
+    : { data: null };
+
   const ticketsToCreate = [];
   const codes: string[] = [];
 
@@ -194,6 +209,7 @@ export async function createReservationsAndNotify({
       user_name: displayName,
       guest_count: 1,
       status: "active",
+      card_id: card?.id || null,
     });
   }
 
@@ -212,17 +228,29 @@ export async function createReservationsAndNotify({
   });
 
   if (!skipEmail) {
-    sendEmail({
-      to: user_email,
-      subject: `🎟️ La tua prenotazione per ${eventTitle || "l'evento"}`,
-      html: qrTicketHtml({
-        eventTitle: eventTitle || "Evento Rumba Liguria",
-        userEmail: user_email,
-        guestCount: guest_count,
-        tickets,
-        invoiceUrl,
-      }),
-    }).catch(() => {/* ignore email errors */});
+    if (card) {
+      sendEmail({
+        to: user_email,
+        subject: `🪪 Tessera attivata per ${eventTitle || "l'evento"}`,
+        html: tesseraActivatedHtml({
+          eventTitle: eventTitle || "Evento Rumba Liguria",
+          fullName: card.full_name,
+          invoiceUrl,
+        }),
+      }).catch(() => {/* ignore email errors */});
+    } else {
+      sendEmail({
+        to: user_email,
+        subject: `🎟️ La tua prenotazione per ${eventTitle || "l'evento"}`,
+        html: qrTicketHtml({
+          eventTitle: eventTitle || "Evento Rumba Liguria",
+          userEmail: user_email,
+          guestCount: guest_count,
+          tickets,
+          invoiceUrl,
+        }),
+      }).catch(() => {/* ignore email errors */});
+    }
   }
 
   return data;
