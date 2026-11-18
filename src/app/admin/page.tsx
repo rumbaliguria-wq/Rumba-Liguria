@@ -6553,42 +6553,43 @@ export default function AdminPage() {
                     </span>
                   </button>
                 )}
-                {cardActivity && cardActivity.reserved_attended.length > 0 && (
-                  <button
-                    onClick={() => setCardActivityOpen("reserved_attended")}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
-                  >
-                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-blue-400" /> Riservato e presente</span>
-                    <span className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-blue-400">{cardActivity.reserved_attended.length}</span>
-                      <ChevronRight size={12} className="text-gray-600" />
-                    </span>
-                  </button>
-                )}
-                {cardActivity && cardActivity.reserved_not_attended.length > 0 && (
-                  <button
-                    onClick={() => setCardActivityOpen("reserved_not_attended")}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
-                  >
-                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-yellow-400" /> Riservato ma assente</span>
-                    <span className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-yellow-400">{cardActivity.reserved_not_attended.length}</span>
-                      <ChevronRight size={12} className="text-gray-600" />
-                    </span>
-                  </button>
-                )}
-                {cardActivity && cardActivity.attended_without_reservation.length > 0 && (
-                  <button
-                    onClick={() => setCardActivityOpen("attended_without_reservation")}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
-                  >
-                    <span className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-orange-400" /> Presente senza riserva</span>
-                    <span className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-orange-400">{cardActivity.attended_without_reservation.length}</span>
-                      <ChevronRight size={12} className="text-gray-600" />
-                    </span>
-                  </button>
-                )}
+                {(() => {
+                  const ca = cardActivity || { reserved_attended: [], reserved_not_attended: [], attended_without_reservation: [] };
+                  const CARD_ACTIVITY_META: Record<string, { label: string; color: string; bar: string }> = {
+                    reserved_attended: { label: "Riservato e presente", color: "text-blue-400", bar: "bg-blue-500" },
+                    reserved_not_attended: { label: "Riservato ma assente", color: "text-yellow-400", bar: "bg-yellow-500" },
+                    attended_without_reservation: { label: "Presente senza riserva", color: "text-orange-400", bar: "bg-orange-500" },
+                  };
+                  const rows = (["reserved_attended", "reserved_not_attended", "attended_without_reservation"] as const)
+                    .map((key) => ({ key, ...CARD_ACTIVITY_META[key], count: ca[key].length }));
+                  const caTotal = rows.reduce((s, r) => s + r.count, 0);
+                  const dominant = caTotal > 0 ? [...rows].sort((a, b) => b.count - a.count)[0] : null;
+                  return (
+                    <div className="p-3 rounded-xl bg-[#0a0a12] border border-white/8">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <p className="text-xs text-gray-400 flex items-center gap-1.5"><IdCard size={13} className="text-blue-400" /> Tessera di socio</p>
+                        {dominant && <p className="text-[11px] text-gray-500">Più presente: <span className={dominant.color}>{dominant.label}</span></p>}
+                      </div>
+                      <div className="space-y-2">
+                        {rows.map((r) => (
+                          <button
+                            key={r.key}
+                            onClick={() => r.count > 0 && setCardActivityOpen(r.key)}
+                            className={`w-full text-left group ${r.count > 0 ? "" : "cursor-default"}`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-[11px] font-medium ${r.color}`}>{r.label}</span>
+                              <span className="text-[11px] text-gray-500 group-hover:text-gray-300">{r.count}{caTotal > 0 ? ` · ${Math.round((r.count / caTotal) * 100)}%` : ""}</span>
+                            </div>
+                            <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                              <div className={`h-full rounded-full ${r.bar} transition-all`} style={{ width: `${caTotal > 0 ? (r.count / caTotal) * 100 : 0}%` }} />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {groupEntriesCount > 0 && (
                   <div className="flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8">
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><Users size={13} className="text-pink-400" /> Entrate con Codice Gruppo</span>
