@@ -12,11 +12,14 @@ export async function GET(
   const { id } = await params;
   const supabase = getServiceClient();
 
+  // Las ligadas a una tessera (card_id) ya se cuentan en "Tessere" más abajo
+  // — si también entraran acá, una misma entrada sumaría doble.
   const { count: reservations } = await supabase
     .from("reservations")
     .select("id", { count: "exact", head: true })
     .eq("event_id", id)
-    .eq("status", "used");
+    .eq("status", "used")
+    .is("card_id", null);
 
   const { count: tessere } = await supabase
     .from("card_scans")

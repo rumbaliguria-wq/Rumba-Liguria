@@ -6242,11 +6242,13 @@ export default function AdminPage() {
       );
       const total = evRes.length;
       const active = evRes.filter(r => r.status === "active").length;
-      const entered = evRes.filter(r => r.status === "used").length;
+      // Las ligadas a una tessera (card_id) ya se cuentan en "Entrate con tessera"
+      // y en "Riservato e presente" — si entraran acá también, sumarían doble.
+      const entered = evRes.filter(r => r.status === "used" && !r.card_id).length;
       const groupEntriesCount = evRes.filter(r => r.user_email === "__group__" && r.status !== "cancelled").length;
       const cancelled = evRes.filter(r => r.status === "cancelled").length;
       const totalGuests = evRes.reduce((s, r) => s + (r.guest_count || 1), 0);
-      const enteredGuests = evRes.filter(r => r.status === "used").reduce((s, r) => s + (r.guest_count || 1), 0);
+      const enteredGuests = evRes.filter(r => r.status === "used" && !r.card_id).reduce((s, r) => s + (r.guest_count || 1), 0);
       const pct = total > 0 ? Math.round((entered / total) * 100) : 0;
       const fillRate = statsEvent.max_tickets ? Math.round((totalGuests / statsEvent.max_tickets) * 100) : null;
 
@@ -6279,8 +6281,8 @@ export default function AdminPage() {
       const statCards: { label: string; value: number; color: string; borderColor: string; list?: typeof evRes }[] = [
         { label: "Prenotazioni totali", value: total, color: "text-white", borderColor: "border-white/8", list: evRes },
         { label: "Persone totali", value: totalGuests, color: "text-blue-400", borderColor: "border-blue-500/20", list: evRes },
-        { label: "Entrati", value: entered, color: "text-green-400", borderColor: "border-green-500/20", list: evRes.filter(r => r.status === "used") },
-        { label: "Persone entrate", value: enteredGuests, color: "text-green-400", borderColor: "border-green-500/20", list: evRes.filter(r => r.status === "used") },
+        { label: "Entrati", value: entered, color: "text-green-400", borderColor: "border-green-500/20", list: evRes.filter(r => r.status === "used" && !r.card_id) },
+        { label: "Persone entrate", value: enteredGuests, color: "text-green-400", borderColor: "border-green-500/20", list: evRes.filter(r => r.status === "used" && !r.card_id) },
         { label: "In attesa", value: active, color: "text-yellow-400", borderColor: "border-yellow-500/20", list: evRes.filter(r => r.status === "active") },
         { label: "Cancellate", value: cancelled, color: "text-red-400", borderColor: "border-red-500/20", list: evRes.filter(r => r.status === "cancelled") },
       ];
@@ -6521,7 +6523,7 @@ export default function AdminPage() {
                 </div>
                 {entered > 0 && (
                   <button
-                    onClick={() => setStatsDrilldown({ label: "Entrate con QR", list: evRes.filter(r => r.status === "used") })}
+                    onClick={() => setStatsDrilldown({ label: "Entrate con QR", list: evRes.filter(r => r.status === "used" && !r.card_id) })}
                     className="w-full flex items-center justify-between p-3 rounded-xl bg-[#0a0a12] border border-white/8 hover:brightness-125 transition-all active:scale-95"
                   >
                     <span className="text-xs text-gray-400 flex items-center gap-1.5"><Ticket size={13} className="text-purple-400" /> Entrate con QR</span>

@@ -58,6 +58,7 @@ export interface Reservation {
   created_at: string;
   link_pin?: string | null;
   checked_in_at?: string | null;
+  card_id?: string | null;
   events: { title: string; event_date_iso?: string; archived?: boolean } | null;
 }
 
