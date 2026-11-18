@@ -35,12 +35,20 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
-  return getTransporter().sendMail({
+  const mail = {
     from: FROM,
     to: Array.isArray(to) ? to.join(", ") : to,
     subject,
     html,
-  });
+  };
+  try {
+    return await getTransporter().sendMail(mail);
+  } catch {
+    // Un corte pasajero de Gmail no debe perder el correo — un reintento
+    // después de una pausa corta antes de darse por vencido.
+    await new Promise((r) => setTimeout(r, 2000));
+    return await getTransporter().sendMail(mail);
+  }
 }
 
 export function sendPasswordResetEmail({ to, resetUrl }: { to: string; resetUrl: string }) {
