@@ -150,36 +150,44 @@ function SuccessContent() {
                 <section key={tk.event_id} className="p-5 rounded-2xl bg-[#0a0a12] border border-white/10">
                   <h2 className="text-lg font-bold">{tk.event_title}</h2>
                   {tk.ticket_type && <p className="text-xs text-gray-400 mb-3">{tk.ticket_type}</p>}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                    {tk.codes.map((code, i) => (
-                      <div key={code} className="text-center">
-                        <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">
-                          {t(lang, "payment.ticket")} {i + 1}
-                        </p>
-                        <div id={`qr-${code}`} className="inline-block p-3 bg-white rounded-xl">
-                          <QRCodeSVG value={`${origin}/verify/${code}`} size={160} level="M" fgColor={tk.ticket_color || "#000000"} />
+                  {tk.card_linked ? (
+                    <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 text-center">
+                      <p className="text-sm font-semibold" style={{ color: accent }}>🪪 Usa la tua tessera per entrare</p>
+                      <p className="text-xs text-gray-500 mt-1">Non ti serve nessun QR nuovo — mostra la tua tessera all&apos;ingresso, come sempre.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                      {tk.codes.map((code, i) => (
+                        <div key={code} className="text-center">
+                          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">
+                            {t(lang, "payment.ticket")} {i + 1}
+                          </p>
+                          <div id={`qr-${code}`} className="inline-block p-3 bg-white rounded-xl">
+                            <QRCodeSVG value={`${origin}/verify/${code}`} size={160} level="M" fgColor={tk.ticket_color || "#000000"} />
+                          </div>
+                          <p className="font-mono text-xs text-gray-400 mt-2">{code}</p>
+                          <p className="text-[11px] text-gray-500">{t(lang, "payment.showQr")}</p>
+                          <button
+                            onClick={() => saveTicket(tk.event_title, tk.ticket_type, code)}
+                            className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border border-white/15 hover:bg-white/5 active:scale-95 transition-all"
+                            style={{ color: accent }}
+                          >
+                            <Download size={14} /> {t(lang, "payment.download")}
+                          </button>
                         </div>
-                        <p className="font-mono text-xs text-gray-400 mt-2">{code}</p>
-                        <p className="text-[11px] text-gray-500">{t(lang, "payment.showQr")}</p>
-                        <button
-                          onClick={() => saveTicket(tk.event_title, tk.ticket_type, code)}
-                          className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border border-white/15 hover:bg-white/5 active:scale-95 transition-all"
-                          style={{ color: accent }}
-                        >
-                          <Download size={14} /> {t(lang, "payment.download")}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               ))}
             </div>
 
             <div className="text-center mt-8 space-y-3">
-              {outcome.result.tickets.reduce((n, tk) => n + tk.codes.length, 0) > 1 && (
+              {outcome.result.tickets.reduce((n, tk) => n + (tk.card_linked ? 0 : tk.codes.length), 0) > 1 && (
                 <button
                   onClick={async () => {
                     for (const tk of outcome.result.tickets) {
+                      if (tk.card_linked) continue;
                       for (const code of tk.codes) {
                         await saveTicket(tk.event_title, tk.ticket_type, code);
                         await new Promise((r) => setTimeout(r, 500));

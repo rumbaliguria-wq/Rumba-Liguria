@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const supabase = getServiceClient();
     const { data, error } = await supabase
       .from("reservations")
-      .select("code, status, user_name, events(title, event_date, event_date_iso, flyer_url, details)")
+      .select("code, status, user_name, card_id, events(title, event_date, event_date_iso, flyer_url, details)")
       .eq("user_email", email.toLowerCase())
       .order("created_at", { ascending: false });
 

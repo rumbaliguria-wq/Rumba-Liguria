@@ -177,7 +177,7 @@ export default function Home() {
   const [adminCode, setAdminCode] = useState("");
   const [adminSending, setAdminSending] = useState(false);
   const [reservation, setReservation] = useState<{eventId: string;count: number;ticketType?: string;} | null>(null);
-  const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypeName?: string;ticketColor?: string;} | null>(null);
+  const [qrData, setQrData] = useState<{codes: string[];eventTitle: string;guestCount: number;ticketTypeName?: string;ticketColor?: string;cardLinked?: boolean;} | null>(null);
   const [reserving, setReserving] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartLoaded, setCartLoaded] = useState(false);
@@ -663,7 +663,8 @@ export default function Home() {
 
       const codes = data.map((t: {code: string}) => t.code);
       const matchedType = event.ticket_types?.find((tt) => tt.name === reservation.ticketType);
-      setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypeName: matchedType?.name, ticketColor: isQrSafeColor(matchedType?.color) ? matchedType?.color : undefined });
+      const cardLinked = data.some((t: { card_id?: string | null }) => !!t.card_id);
+      setQrData({ codes, eventTitle: event.title, guestCount: reservation.count, ticketTypeName: matchedType?.name, ticketColor: isQrSafeColor(matchedType?.color) ? matchedType?.color : undefined, cardLinked });
       setReservation(null);
       fetchUserReservations(userEmail);
       toast.success(t(lang, "reservation.confirmed"));
@@ -754,7 +755,7 @@ export default function Home() {
       }
       if (data.free) {
         const first = data.result?.tickets?.[0];
-        if (first) setQrData({ codes: first.codes, eventTitle: first.event_title, guestCount: first.codes.length, ticketTypeName: first.ticket_type, ticketColor: first.ticket_color });
+        if (first) setQrData({ codes: first.codes, eventTitle: first.event_title, guestCount: first.codes.length, ticketTypeName: first.ticket_type, ticketColor: first.ticket_color, cardLinked: first.card_linked });
         setCart([]);
         setShowCart(false);
         fetchUserReservations(userEmail);
@@ -2334,7 +2335,12 @@ export default function Home() {
                             </div>
                           </div>
 
-                          {displayStatus === 'active' && (
+                          {displayStatus === 'active' && res.card_id && (
+                            <div className="mt-auto pt-3 border-t border-white/5 text-center">
+                              <p className="text-xs font-semibold" style={{ color: a }}>🪪 Usa la tua tessera per entrare</p>
+                            </div>
+                          )}
+                          {displayStatus === 'active' && !res.card_id && (
                             <div className="mt-auto pt-3 border-t border-white/5 flex items-center justify-center">
                               <div className="bg-white rounded-lg p-2">
                                 <QRCodeSVG
@@ -2384,33 +2390,42 @@ export default function Home() {
               {qrData.guestCount} {qrData.guestCount === 1 ? t(lang, "reservation.person") : t(lang, "reservation.people")}
             </p>
             
-            <div className="space-y-6 pt-2">
-              {qrData.codes.map((code, index) => {
-                const qrColor = qrData.ticketColor || "#000000";
-                return (
-                <div key={code} className="space-y-2">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ticket {index + 1}{qrData.ticketTypeName ? ` — ${qrData.ticketTypeName}` : ""}</p>
-                  <div className="qr-code-container bg-white rounded-xl p-3 inline-block">
-                    <QRCodeSVG
-                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${code}`}
-                      size={160}
-                      level="H"
-                      fgColor={qrColor}
-                    />
-                  </div>
-                  <p className="text-[10px] font-mono text-gray-500">{code}</p>
-                </div>);
-              })}
-            </div>
+            {qrData.cardLinked ? (
+              <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
+                <p className="text-sm font-semibold" style={{ color: a }}>🪪 Usa la tua tessera per entrare</p>
+                <p className="text-xs text-gray-500">Non ti serve nessun QR nuovo — mostra la tua tessera all&apos;ingresso, come sempre.</p>
+              </div>
+            ) : (
+              <div className="space-y-6 pt-2">
+                {qrData.codes.map((code, index) => {
+                  const qrColor = qrData.ticketColor || "#000000";
+                  return (
+                  <div key={code} className="space-y-2">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ticket {index + 1}{qrData.ticketTypeName ? ` — ${qrData.ticketTypeName}` : ""}</p>
+                    <div className="qr-code-container bg-white rounded-xl p-3 inline-block">
+                      <QRCodeSVG
+                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${code}`}
+                        size={160}
+                        level="H"
+                        fgColor={qrColor}
+                      />
+                    </div>
+                    <p className="text-[10px] font-mono text-gray-500">{code}</p>
+                  </div>);
+                })}
+              </div>
+            )}
 
-            <p className="text-xs text-gray-500 pt-2">{t(lang, "reservation.showQr")}</p>
+            {!qrData.cardLinked && <p className="text-xs text-gray-500 pt-2">{t(lang, "reservation.showQr")}</p>}
             <div className="flex gap-2 sticky bottom-0 bg-[#0a0a12] py-2">
-              <button
-                onClick={saveQrImage}
-                className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-semibold hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2">
-                <Download size={16} />
-                {t(lang, "reservation.saveQr")}
-              </button>
+              {!qrData.cardLinked && (
+                <button
+                  onClick={saveQrImage}
+                  className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-semibold hover:bg-green-500 transition-all text-sm flex items-center justify-center gap-2">
+                  <Download size={16} />
+                  {t(lang, "reservation.saveQr")}
+                </button>
+              )}
               <button
                 onClick={() => setQrData(null)}
                 className="flex-1 py-2.5 rounded-xl text-white font-semibold hover:opacity-80 transition-all text-sm"

@@ -40,6 +40,9 @@ export interface TicketResult {
   ticket_type?: string;
   ticket_color?: string;
   codes: string[];
+  // Socio: esta compra quedó ligada a su tessera (ver createReservationsAndNotify)
+  // — el front no muestra QR, muestra el aviso de usar la tessera.
+  card_linked?: boolean;
 }
 
 export interface RejectedResult {
@@ -167,6 +170,7 @@ export async function fulfillItems(
         ticket_type: line.ticket_type,
         ticket_color: isQrSafeColor(matchedType?.color) ? matchedType?.color : undefined,
         codes: (rows || []).map((r: { code: string }) => r.code),
+        card_linked: (rows || []).some((r: { card_id?: string | null }) => !!r.card_id),
       });
     } catch (err) {
       result.rejected.push({
