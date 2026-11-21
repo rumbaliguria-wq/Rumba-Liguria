@@ -35,6 +35,23 @@ export async function validateBookingRules(
 ): Promise<string | null> {
   const eventDateIso = event?.event_date_iso;
 
+  // Tessera desactivada → no puede reservar nada, para ningún evento, hasta
+  // que se reactive. No basta con bloquearle la entrada en la puerta: si
+  // pudiera seguir reservando, cada reserva nueva volvería a ligarse a esa
+  // misma tessera bloqueada como si no hubiera pasado nada.
+  if (user_email) {
+    const escapedEmail = user_email.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const { data: blockedCard } = await supabase
+      .from("client_cards")
+      .select("id")
+      .ilike("email", escapedEmail)
+      .eq("active", false)
+      .maybeSingle();
+    if (blockedCard) {
+      return "La tua tessera è stata disattivata. Non puoi effettuare prenotazioni — contatta l'organizzazione.";
+    }
+  }
+
   // Un mismo email no puede reservar dos veces GRATIS para el mismo evento
   // (no importa si la primera vez fue por la página normal o por un link de
   // RR.PP. distinto — si esa reserva anterior fue cancelada, no cuenta). Lo
