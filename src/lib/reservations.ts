@@ -169,11 +169,15 @@ export async function createReservationsAndNotify({
   // por el propio socio, no a una venta en efectivo tecleada por el admin
   // (nameOverride) ni a una compra de varios tickets a la vez (serían para
   // sus amigos, no todos tienen la misma tessera).
+  // ilike compara sin importar mayúsculas/minúsculas, pero "_" y "%" son
+  // comodines para ella — se escapan para que un email con "_" (común) no
+  // matchee de más por accidente.
+  const escapedEmailForCardLookup = user_email.replace(/[\\%_]/g, (c) => `\\${c}`);
   const { data: card } = guest_count === 1 && !nameOverride
     ? await supabase
         .from("client_cards")
         .select("id, full_name")
-        .eq("email", user_email)
+        .ilike("email", escapedEmailForCardLookup)
         .maybeSingle()
     : { data: null };
 
